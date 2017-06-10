@@ -1,0 +1,24 @@
+#!/bin/bash
+
+device="dmatest"
+
+#echo -n "initcall_debug: " && cat /sys/module/kernel/parameters/initcall_debug
+
+if [ -z $1 ]; then
+	chann=4
+else
+	chann="$1"
+fi
+
+sudo rmmod test_dev
+sudo rm -rf /dev/${device}
+
+#Debug para module_init.
+sudo dmesg --clear
+#echo 'Y' | sudo tee /sys/module/kernel/parameters/initcall_debug
+
+make clean && make
+sudo insmod test_dev.ko max_chann=${chann}
+dmesg
+
+sudo mknod /dev/${device} c $(sudo cat /sys/kernel/debug/dmatest/major) 1

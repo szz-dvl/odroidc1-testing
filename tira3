@@ -1,0 +1,17 @@
+#!/bin/bash
+
+./dotestdev
+
+if [ ! -z $1 ] && [ $1 == "Y" ]; then
+	./sendpar --value 100 --size 32 --amount 6 --verbose 1 --async
+else
+	./sendpar --value 100 --size 32 --amount 6 --verbose 1
+fi
+
+sudo dmesg --clear
+./sendtest 3
+
+echo
+
+sleep 1
+dmesg
