@@ -4,11 +4,11 @@ value=$RANDOM
 size=$(( ( RANDOM % 32 )  + 1 ))
 amount=1
 verbose=1
-async="N"
+async="Y"
 def=""
 
 # read the options
-TEMP=`getopt -o n:s:ia:v:d --long value:,size:,amount:,async,verbose:,defaults -n 'sendpar' -- "$@"`
+TEMP=`getopt -o n:s:i:a:v:d --long value:,size:,amount:,async:,verbose:,defaults -n 'sendpar' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -20,7 +20,7 @@ while true ; do
 			size="$2" ; shift 2 ;
 			echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/fifo_size > /dev/null ;;
 		-i | --async)
-			async="Y" ; shift ;
+			async="$2" ; shift 2 ;
 			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode > /dev/null ;;
 		-a | --amount)
 			amount="$2" ; shift 2 ;

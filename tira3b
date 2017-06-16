@@ -2,10 +2,10 @@
 
 ./dotestdev
 
-if [ ! -z $1 ] && [ $1 == "Y" ]; then
-	./sendpar --value 100 --size 128 --amount 36100 --async
+if [ ! -z "$1" ] && [ "$1" == "Y" ]; then
+	./sendpar --value 100 --size 128 --amount 36100 --async Y
 else
-	./sendpar --value 100 --size 128 --amount 36100
+	./sendpar --value 100 --size 128 --amount 36100 --async N
 fi
 
 sudo dmesg --clear
