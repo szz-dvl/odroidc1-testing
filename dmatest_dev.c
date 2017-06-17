@@ -12,7 +12,7 @@ MODULE_PARM_DESC(max_chann, "Maximum number of dma channels available.");
 static int dev_open ( struct inode * inod, struct file * file );
 static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, loff_t * off );
 static int dev_release ( struct inode * inod, struct file * file );
-static telem * get_free_chann ( void );
+static telem * get_free_node ( void );
 static bool register_debugfs ( void );
 static int run_test ( void * tst_num );
 
@@ -34,7 +34,9 @@ static uint dma_capabilities [] = {
 	DMA_MEMSET
 	
 };
-	
+
+static dma_cap_mask_t mask;
+
 LIST_HEAD(test_list);
 
 static unsigned int major;
@@ -92,7 +94,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	
 	if (!kstrtoul(buff, 10, &res)) {
 		
-		telem * node = get_free_chann();
+		telem * node = get_free_node();
 		node->tnum = res;
 		node->thread = kthread_run(run_test,
 								   node,
@@ -160,27 +162,27 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 	    block = (tdata *) kzalloc(sizeof(tdata), GFP_KERNEL);	
 
 		if (isize) {
-
-			block->input = dma_alloc_coherent(tinfo->chan->device->dev,
-											  isize * sizeof(unsigned long long),
-											  &block->dst_dma,
-											  GFP_ATOMIC | __GFP_ZERO); /* Zero arrays!*/
+			
+			block->input = dma_zalloc_coherent(tinfo->chan->device->dev,
+											   isize * sizeof(unsigned long long),
+											   &block->dst_dma,
+											   GFP_ATOMIC);
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->dst_dma)) 
 				goto map_error;
 		}
 		
 		if (osize) {
-
-			block->output = dma_alloc_coherent(tinfo->chan->device->dev,
-											   osize * sizeof(unsigned long long),
-											   &block->src_dma,
-											   GFP_ATOMIC | __GFP_ZERO);
+			
+			block->output = dma_zalloc_coherent(tinfo->chan->device->dev,
+												osize * sizeof(unsigned long long),
+												&block->src_dma,
+												GFP_ATOMIC);
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->src_dma)) 
 				goto map_error;
 		}
-	  
+		
 		list_add_tail(&block->elem, &tinfo->data);
 	}
 	
@@ -202,7 +204,6 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 	}
 	
 	return false;
-	
 }
 
 static int run_test (void * node_ptr) {
@@ -214,6 +215,8 @@ static int run_test (void * node_ptr) {
 	pr_info("FIFO_SIZE: %u\n", fifo_size);
 	pr_info("GLOB_AMOUNT: %u\n", glob_amount);
 	pr_info("ASYNC_MODE: %s\n", async_mode ? "true" : "false");
+	
+	node->chan = dma_request_channel ( mask, NULL, NULL );
 	
 	switch (node->tnum) 
 		{
@@ -251,41 +254,32 @@ static int run_test (void * node_ptr) {
 	
 	if (!ret)
 		pr_err("Error running test!\n");
-	
-	mutex_unlock(&node->lock);
-	//node_reset(node);
+
+	dma_release_channel ( node->chan );
+	mutex_unlock ( &node->lock );
 	
 	return ret;
 }
 
-static telem * get_free_chann (void) {
+static telem * get_free_node (void) {
 
     telem * node;
 	
 	list_for_each_entry(node, &test_list, elem) {
+
 		if (!mutex_is_locked(&node->lock)) {
+			
 			mutex_lock(&node->lock);
 			return node;
+			
 		}
 	}
 	
 	return NULL;
 }
 
-static void node_reset ( telem * node ) {
-
-	dma_cap_mask_t mask;
-
-	dma_cap_zero(mask);
-	
-	dma_release_channel ( node->chan );
-	node->chan = dma_request_channel(mask, NULL, NULL);
-
-}
-
 static int __init dmatest_init(void)
 {
-	dma_cap_mask_t mask;
 	int i;
 	
     get_random_bytes(&dvc_value, 32);
@@ -293,7 +287,7 @@ static int __init dmatest_init(void)
 	major = register_chrdev(0, "dmatest", &fops);
 	if ( major < 0 ) {
 		
-		pr_err("Char device registration failed.");
+		pr_err("Char device registration failed.\n");
 		goto err_gen;
 		
 	} else
@@ -301,7 +295,7 @@ static int __init dmatest_init(void)
 	
     if (!register_debugfs()) {
 		
-		pr_err("Debugfs registration failed.");
+		pr_err("Debugfs registration failed.\n");
 		unregister_chrdev ( major, "dmatest" );
 	    return -6;
 		
@@ -319,17 +313,12 @@ static int __init dmatest_init(void)
 		if (node) {
 			
 			mutex_init(&node->lock);
-			node->chan = dma_request_channel(mask, NULL, NULL);
 			INIT_LIST_HEAD(&node->data);
-			
-			if (node->chan) 
-				list_add_tail(&node->elem, &test_list);
-			else
-				break;
+			list_add_tail(&node->elem, &test_list);
 			
 		} else {
 			
-			pr_err("Error allocating element %d.", i);
+			pr_err("Error allocating element %d.\n", i);
 			break;
 			
 		}
@@ -337,7 +326,7 @@ static int __init dmatest_init(void)
 	
 	if (i == 0) {
 		
-		pr_err("No channels availbale\n");
+		pr_err("No channels availbale.\n");
 		goto err_gen;
 		
 	}
@@ -357,15 +346,14 @@ static void __exit dmatest_exit(void)
 	telem * node;
 	
 	list_for_each_entry(node, &test_list, elem) {
-
+		
 		if (mutex_is_locked(&node->lock)) {
 			
 			kthread_stop(node->thread);
-			mutex_unlock(&node->lock);
+			dma_release_channel ( node->chan );
 			
+			mutex_unlock(&node->lock);
 		}
-		
-		dma_release_channel ( node->chan );
 	}
 	
 	unregister_chrdev ( major, "dmatest" );
