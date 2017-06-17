@@ -1,8 +1,5 @@
 #include "dmatest.h"
 
-extern unsigned int dvc_value, fifo_size, verbose, glob_amount;
-extern bool async_mode;
-
 bool do_slave_dev_to_mem (telem * tinfo) {
     
 	unsigned long flags = 0;

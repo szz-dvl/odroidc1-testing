@@ -1,8 +1,5 @@
 #include "dmatest.h"
 
-extern unsigned int dvc_value, fifo_size, verbose, glob_amount;
-extern bool async_mode;
-
 bool do_interleaved_mem_to_mem (telem * tinfo) {
 	
     struct dma_interleaved_template *xt;

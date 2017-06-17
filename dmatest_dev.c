@@ -104,10 +104,16 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	if (!kstrtoul(buff, 10, &res)) {
 		
 		telem * node = get_free_node();
-		node->tnum = res;
-		node->thread = kthread_run(run_test,
+
+		if (node) {
+			
+			node->tnum = res;
+			node->thread = kthread_run(run_test,
 								   node,
-								   "dmatest-worker");	
+								   "dmatest-worker");
+			
+		} else
+			pr_err("No free node available.\n");
 	} else
 		pr_err("Invalid test receieved: %s\n", buff);
 	
@@ -157,7 +163,7 @@ int my_callback(void * args) {
 		pr_info("Callback: Bad cookie!\n");
 
 	
-	dma_release_channel ( node->chan );
+	dma_release_channel ( tinfo->chan );
 	
 	return IRQ_HANDLED;
 }
@@ -178,7 +184,7 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 			block->input = dma_zalloc_coherent(tinfo->chan->device->dev,
 											   isize * sizeof(unsigned long long),
 											   &block->dst_dma,
-											   GFP_ATOMIC);
+											   GFP_KERNEL);
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->dst_dma)) 
 				goto map_error;
@@ -189,7 +195,7 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 			block->output = dma_zalloc_coherent(tinfo->chan->device->dev,
 												osize * sizeof(unsigned long long),
 												&block->src_dma,
-												GFP_ATOMIC);
+												GFP_KERNEL);
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->src_dma)) 
 				goto map_error;
@@ -221,7 +227,7 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 static int run_test (void * node_ptr) {
 	
 	telem * node = (telem *) node_ptr;
-	int ret;
+	int ret = false;
 	
 	pr_info("DVC_VALUE: %u\n", dvc_value);
 	pr_info("FIFO_SIZE: %u\n", fifo_size);
@@ -229,47 +235,51 @@ static int run_test (void * node_ptr) {
 	pr_info("ASYNC_MODE: %s\n", async_mode ? "true" : "false");
 	
 	node->chan = dma_request_channel ( mask, NULL, NULL );
-	
-	switch (node->tnum) 
-		{
-		case DEV_2_MEM:
-			{
-				ret = do_slave_dev_to_mem (node);
-			}
-			break;;
-		case MEM_2_DEV:
-			{
-				ret =  do_slave_mem_to_dev (node);
-			}
-			break;;
-		case DEV_2_DEV:
-			{ 
-				ret = do_slave_dev_to_dev (node);
-			}
-			break;;
-		case MEM_2_MEM:
-			{ 
-				ret = do_interleaved_mem_to_mem (node);
-			}
-			break;;
-		case ALL:
-			{
-				ret = false;
-			}
-			break;;
-		default: 
-			
-			pr_err("Invalid test requested: %lu\n", node->tnum);
-			ret = false;
-			
-		};
-	
-	if (!ret)
-		pr_err("Error running test!\n");
 
-	if (!async_mode)
-		dma_release_channel ( node->chan );
+	if (node->chan) {
+		
+		switch (node->tnum) 
+			{
+			case DEV_2_MEM:
+				{
+					ret = do_slave_dev_to_mem (node);
+				}
+				break;;
+			case MEM_2_DEV:
+				{
+					ret =  do_slave_mem_to_dev (node);
+				}
+				break;;
+			case DEV_2_DEV:
+				{ 
+					ret = do_slave_dev_to_dev (node);
+				}
+				break;;
+			case MEM_2_MEM:
+				{ 
+					ret = do_interleaved_mem_to_mem (node);
+				}
+				break;;
+			case ALL:
+				{
+					ret = false;
+				}
+				break;;
+			default: 
+			
+				pr_err("Invalid test requested: %lu\n", node->tnum);
+				ret = false;
+			
+			};
 	
+		if (!ret)
+			pr_err("Error running test!\n");
+
+		if (!async_mode)
+			dma_release_channel ( node->chan );
+	} else
+		pr_err("No channel available.\n");
+
 	mutex_unlock ( &node->lock );
 	
 	return ret;
