@@ -41,6 +41,15 @@ LIST_HEAD(test_list);
 
 static unsigned int major;
 
+/* Default value for parameters */
+
+unsigned int fifo_size = FIFO_SIZE;
+unsigned int dvc_value = 100;
+unsigned int verbose = 1;
+unsigned int glob_amount = 1;
+
+bool async_mode = true;
+
 struct dentry *root;
 
 static bool register_debugfs (void) {
@@ -58,7 +67,7 @@ static bool register_debugfs (void) {
 	d = debugfs_create_u32("glob_amount", S_IRUGO | S_IWUSR, root, (u32 *)&glob_amount);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
-
+	
 	d = debugfs_create_u32("dvc_value", S_IRUGO | S_IWUSR, root, (u32 *)&dvc_value);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
@@ -143,9 +152,12 @@ int my_callback(void * args) {
 			
 			j ++;
 		}
-		
+
 	} else 
 		pr_info("Callback: Bad cookie!\n");
+
+	
+	dma_release_channel ( node->chan );
 	
 	return IRQ_HANDLED;
 }
@@ -255,7 +267,9 @@ static int run_test (void * node_ptr) {
 	if (!ret)
 		pr_err("Error running test!\n");
 
-	dma_release_channel ( node->chan );
+	if (!async_mode)
+		dma_release_channel ( node->chan );
+	
 	mutex_unlock ( &node->lock );
 	
 	return ret;
@@ -281,8 +295,6 @@ static telem * get_free_node (void) {
 static int __init dmatest_init(void)
 {
 	int i;
-	
-    get_random_bytes(&dvc_value, 32);
 	
 	major = register_chrdev(0, "dmatest", &fops);
 	if ( major < 0 ) {

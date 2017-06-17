@@ -8,38 +8,57 @@ async="Y"
 def=""
 
 # read the options
-TEMP=`getopt -o n:s:i:a:v:d --long value:,size:,amount:,async:,verbose:,defaults -n 'sendpar' -- "$@"`
+TEMP=`getopt -o n:s:i::a:v:d --long value:,size:,amount:,async::,verbose:,defaults -n 'sendpar' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
     case "$1" in
 		-n | --value)
 			value="$2" ; shift 2 ;
-			echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value > /dev/null ;;
+			echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value &> /dev/null ;;
+
 		-s | --size)
 			size="$2" ; shift 2 ;
-			echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/fifo_size > /dev/null ;;
+			echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/fifo_size &> /dev/null ;;
+
 		-i | --async)
-			async="$2" ; shift 2 ;
-			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode > /dev/null ;;
+
+			if [ "$2" == "" ]; then
+				async="$2"
+			else
+				old=$(sudo cat /sys/kernel/debug/dmatest/async_mode)
+
+				if [ "$old" == "Y" ]; then
+					async="N"
+				else
+					async="Y"
+				fi
+			fi
+
+			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
+			shift 2;;
+
 		-a | --amount)
 			amount="$2" ; shift 2 ;
-			echo -n "$amount" | sudo tee /sys/kernel/debug/dmatest/glob_amount > /dev/null ;;
+			echo -n "$amount" | sudo tee /sys/kernel/debug/dmatest/glob_amount &> /dev/null ;;
+
 		-v | --verbose)
 			verbose="$2" ; shift 2 ;
-			echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose > /dev/null ;;
+			echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null ;;
+
 		-d | --defaults)
 			def="Y" ; shift ;;
+
 		--) shift ; break ;;
 		*) echo "Error parsing opts, aborting." ; exit 1 ;;
 	esac
 done
 
 if [ ! -z "$def" ]; then
-	echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value > /dev/null
-	echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/fifo_size > /dev/null
-	echo -n "$amount" | sudo tee /sys/kernel/debug/dmatest/glob_amount > /dev/null
-	echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode > /dev/null
-	echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose > /dev/null
+	echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value &> /dev/null
+	echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/fifo_size &> /dev/null
+	echo -n "$amount" | sudo tee /sys/kernel/debug/dmatest/glob_amount &> /dev/null
+	echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
+	echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null
 fi
 

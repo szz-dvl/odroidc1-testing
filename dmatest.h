@@ -77,9 +77,5 @@ bool do_slave_dev_to_dev ( telem * tinfo );
 int my_callback ( void * args );
 	
 /* Parameters ofered in debugfs */
-static unsigned int dvc_value,
-	fifo_size = FIFO_SIZE,
-	verbose = 1,
-	glob_amount = 1;
-
-static bool async_mode = false;
+extern unsigned int dvc_value, fifo_size, verbose, glob_amount;
+extern bool async_mode;

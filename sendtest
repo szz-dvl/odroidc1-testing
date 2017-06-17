@@ -6,4 +6,4 @@ else
 	test="$1"
 fi
 
-echo -n "$test" | sudo tee /dev/dmatest > /dev/null
+echo -n "$test" | sudo tee /dev/dmatest &> /dev/null
