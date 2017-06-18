@@ -1,6 +1,6 @@
 #include "dmatest.h"
 
-bool do_interleaved_mem_to_mem (telem * tinfo) {
+bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	
     struct dma_interleaved_template *xt;
 	unsigned long flags = 0;
@@ -131,4 +131,28 @@ bool do_interleaved_mem_to_mem (telem * tinfo) {
 	kfree(xt);
 	
 	return false;
+}
+
+bool do_interleaved_dev_to_mem ( telem * tinfo )
+{
+	return false;
+};
+
+bool do_interleaved_mem_to_dev ( telem * tinfo )
+{
+	return false;
+};
+
+bool do_interleaved_dev_to_dev ( telem * tinfo )
+{
+	return false;
+};
+
+bool do_dma_ileaved ( telem * tinfo )
+{
+	return
+		do_interleaved_mem_to_mem ( tinfo ) &&
+		do_interleaved_dev_to_mem ( tinfo ) &&
+		do_interleaved_mem_to_dev ( tinfo ) &&
+		do_interleaved_dev_to_dev ( tinfo );
 }

@@ -99,26 +99,51 @@ static int dev_open ( struct inode * inod, struct file * file ) {
 
 static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
 	
-    unsigned long res;
-	
-	if (!kstrtoul(buff, 10, &res)) {
-		
-		telem * node = get_free_node();
+    unsigned int res;
+	char * token;
+	char * str = "";
+	uint i = 0;
+	telem * node = get_free_node();
 
-		if (node) {
+	if ( node ) {
+
+		strcpy(str, buff);
+		
+		while ((token = strsep(&str, ","))) {
 			
-			node->tnum = res;
-			node->thread = kthread_run(run_test,
-								   node,
-								   "dmatest-worker");
-			
-		} else
-			pr_err("No free node available.\n");
+			if (strcmp(token, "")) {
+				
+				if (!kstrtou32(token, 10, &res)) {
+					
+					switch (i) {
+					case 0:
+						node->tnum = res;
+						break;;
+					case 1:
+						node->subt = (int) res;
+						break;;
+					default:
+						pr_info("Extra parameter received: %u\n", res);
+						break;;
+					}
+					
+					i++;
+					
+				} else
+					pr_err("Invalid test receieved: %s\n", token);
+			}
+		};
+		
+		pr_info("Running test %u (subtest: %d)\n", node->tnum, node->subt);
+		
+		node->thread = kthread_run ( run_test,
+									 node,
+									 "dmatest-worker" );
+		
 	} else
-		pr_err("Invalid test receieved: %s\n", buff);
+		pr_err("No free node available.\n");
 	
 	return len;
-
 }
 
 static int dev_release ( struct inode * inod, struct file * file ) {
@@ -184,7 +209,7 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 			block->input = dma_zalloc_coherent(tinfo->chan->device->dev,
 											   isize * sizeof(unsigned long long),
 											   &block->dst_dma,
-											   GFP_KERNEL);
+											   GFP_ATOMIC); /* GFP_KERNEL hits kernel BUG at mm/vmalloc.c:100 */
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->dst_dma)) 
 				goto map_error;
@@ -195,7 +220,7 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 			block->output = dma_zalloc_coherent(tinfo->chan->device->dev,
 												osize * sizeof(unsigned long long),
 												&block->src_dma,
-												GFP_KERNEL);
+											    GFP_ATOMIC);
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->src_dma)) 
 				goto map_error;
@@ -233,53 +258,132 @@ static int run_test (void * node_ptr) {
 	pr_info("FIFO_SIZE: %u\n", fifo_size);
 	pr_info("GLOB_AMOUNT: %u\n", glob_amount);
 	pr_info("ASYNC_MODE: %s\n", async_mode ? "true" : "false");
-	
+
 	node->chan = dma_request_channel ( mask, NULL, NULL );
 
+	/* 
+	   To-Do: A bunch of things!! and add support for terminating cyclic transactions.  
+	*/
 	if (node->chan) {
 		
 		switch (node->tnum) 
 			{
-			case DEV_2_MEM:
+
+			case DMA_SLAVE_SG:
 				{
-					ret = do_slave_dev_to_mem (node);
+					switch(node->subt) {
+					case 0:
+						ret = do_slave_dev_to_mem ( node );
+						break;;
+					case 1:
+						ret = do_slave_mem_to_dev ( node );
+						break;;
+					case 2:
+						ret = do_slave_dev_to_dev ( node );
+						break;;
+					default:
+						ret = do_dma_slave_sg ( node );
+					}
 				}
 				break;;
-			case MEM_2_DEV:
+				
+			case DMA_SCAT_GATH:
+				{ 
+					ret = do_dma_scatter_gather ( node );
+				}
+				break;;
+				
+			case DMA_CYCL:
 				{
-					ret =  do_slave_mem_to_dev (node);
+					switch(node->subt) {
+					case 0:
+						ret = do_cyclic_dev_to_mem ( node );
+						break;;
+					case 1:
+						ret = do_cyclic_dev_to_dev ( node );
+						break;;
+					case 2:
+						ret = do_cyclic_mem_to_dev ( node );
+						break;;
+					case 3:
+						ret = do_cyclic_mem_to_mem ( node );
+						break;;
+					default:
+						ret = do_dma_cyclic ( node );
+					}
 				}
 				break;;
-			case DEV_2_DEV:
+
+			case DMA_ILEAVED:
+				{
+					switch(node->subt) {
+					case 0:
+						ret = do_interleaved_mem_to_mem ( node );
+						break;;
+					case 1:
+						ret = do_interleaved_dev_to_mem ( node );
+						break;;
+					case 2:
+						ret = do_interleaved_mem_to_dev ( node );
+						break;;
+					case 3:
+						ret = do_interleaved_dev_to_dev ( node );
+						break;;
+					default:
+						ret = do_dma_cyclic ( node );
+					}
+					
+				}
+				break;;
+				
+			case DMA_IRQ:
 				{ 
-					ret = do_slave_dev_to_dev (node);
+					ret = do_dma_interrupt ( node );
 				}
 				break;;
-			case MEM_2_MEM:
+
+			case DMA_MCPY:
 				{ 
-					ret = do_interleaved_mem_to_mem (node);
+					ret = do_dma_memcpy ( node );
 				}
 				break;;
+
+			case DMA_MSET:
+				{ 
+					ret = do_dma_memset ( node );
+				}
+				break;;
+				
 			case ALL:
 				{
-					ret = false;
+					ret =
+						do_dma_slave_sg ( node ) &&
+						do_dma_cyclic ( node ) &&
+						do_dma_interrupt ( node ) &&
+						do_dma_ileaved ( node ) &&
+						do_dma_scatter_gather ( node ) &&
+						do_dma_memcpy ( node ) &&
+						do_dma_memset ( node );	
 				}
 				break;;
+				
 			default: 
-			
-				pr_err("Invalid test requested: %lu\n", node->tnum);
+				
+				pr_err("Invalid test requested: %u\n", node->tnum);
 				ret = false;
-			
+				
 			};
 	
 		if (!ret)
-			pr_err("Error running test!\n");
-
+			pr_err("Error running test %u.\n", node->tnum);
+		
 		if (!async_mode)
 			dma_release_channel ( node->chan );
+		
 	} else
 		pr_err("No channel available.\n");
 
+    node->subt = -1;
 	mutex_unlock ( &node->lock );
 	
 	return ret;
@@ -336,6 +440,8 @@ static int __init dmatest_init(void)
 			
 			mutex_init(&node->lock);
 			INIT_LIST_HEAD(&node->data);
+			node->subt = -1;
+			
 			list_add_tail(&node->elem, &test_list);
 			
 		} else {
@@ -379,7 +485,7 @@ static void __exit dmatest_exit(void)
 	}
 	
 	unregister_chrdev ( major, "dmatest" );
-	debugfs_remove_recursive(root);
+	debugfs_remove_recursive ( root );
 	
 	return;
 }

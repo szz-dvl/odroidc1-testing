@@ -6,4 +6,10 @@ else
 	test="$1"
 fi
 
-echo -n "$test" | sudo tee /dev/dmatest &> /dev/null
+if [ -z $2 ]; then
+        subtest=""
+else
+        subtest="$2"
+fi
+
+echo -n "$test,$subtest" | sudo tee /dev/dmatest &> /dev/null

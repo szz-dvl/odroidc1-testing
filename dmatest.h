@@ -13,9 +13,9 @@
 #include <linux/irqreturn.h>
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
-#include <linux/random.h>
 #include <linux/kthread.h>
 #include <linux/jiffies.h>
+#include <linux/string.h>
 
 #define FIFO_SIZE               32
 #define S805_DMA_MAX_SKIP       0xFFFF
@@ -25,11 +25,14 @@
 
 typedef enum test_type {
 	
-	DEV_2_MEM,    /* dev write */
-	MEM_2_DEV,    /* dev read */
-    DEV_2_DEV,    /* some kind of protocol ?? */
-	MEM_2_MEM,    /* m2m */
-	ALL           /* All tests */
+    DMA_SLAVE_SG,
+	DMA_SCAT_GATH,
+	DMA_CYCL,
+	DMA_ILEAVED,
+	DMA_IRQ,
+	DMA_MCPY,
+	DMA_MSET,
+	ALL,
 
 } ttype;
 
@@ -63,7 +66,9 @@ typedef struct test_elem {
 	unsigned int isize;
 	unsigned int amount;
 
-	unsigned long tnum;
+	unsigned int tnum;
+	int subt;
+	
 	struct task_struct * thread;
 	
 	unsigned long stime;
@@ -71,13 +76,40 @@ typedef struct test_elem {
 } telem;
 
 bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize);
+int my_callback ( void * args );
 
+/* Slave_SG */
 bool do_slave_dev_to_mem ( telem * tinfo );
-bool do_interleaved_mem_to_mem ( telem * tinfo );
 bool do_slave_mem_to_dev ( telem * tinfo );
 bool do_slave_dev_to_dev ( telem * tinfo );
-int my_callback ( void * args );
-	
+bool do_dma_slave_sg ( telem * tinfo );
+
+/* Interleaved */
+bool do_interleaved_mem_to_mem ( telem * tinfo );
+bool do_interleaved_dev_to_mem ( telem * tinfo );
+bool do_interleaved_mem_to_dev ( telem * tinfo );
+bool do_interleaved_dev_to_dev ( telem * tinfo );
+bool do_dma_ileaved ( telem * tinfo );
+
+/* Cyclic */
+bool do_cyclic_dev_to_mem ( telem * tinfo );
+bool do_cyclic_dev_to_dev ( telem * tinfo );
+bool do_cyclic_mem_to_dev ( telem * tinfo );
+bool do_cyclic_mem_to_mem ( telem * tinfo );
+bool do_dma_cyclic ( telem * tinfo );
+
+/* DMA_SG: */
+bool do_dma_scatter_gather ( telem * tinfo );
+
+/* DMA_MemCopy: */
+bool do_dma_memcpy ( telem * tinfo );
+
+/* DMA_MemSet: */
+bool do_dma_memset ( telem * tinfo );
+
+/* DMA_Interrupt: */
+bool do_dma_interrupt ( telem * tinfo ); /* Don't know how to do this ...*/
+
 /* Parameters ofered in debugfs */
 extern unsigned int dvc_value, fifo_size, verbose, glob_amount;
 extern bool async_mode;

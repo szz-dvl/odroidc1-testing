@@ -8,7 +8,7 @@ fi
 
 sudo dmesg --clear
 
-./sendtest 3
+./sendtest 3 0
 
 sleep 1
 dmesg

@@ -1,6 +1,6 @@
 #include "dmatest.h"
 
-bool do_slave_dev_to_mem (telem * tinfo) {
+bool do_slave_dev_to_mem ( telem * tinfo ) {
     
 	unsigned long flags = 0;
 	tdata * block, * temp;
@@ -101,13 +101,20 @@ bool do_slave_dev_to_mem (telem * tinfo) {
 	return false;
 }
 
-bool do_slave_mem_to_dev (telem * tinfo) {
+bool do_slave_mem_to_dev ( telem * tinfo ) {
 
 	return false;
 }
 
-bool do_slave_dev_to_dev (telem * tinfo) { /* A lo loco con el mocazo! ...*/
+bool do_slave_dev_to_dev ( telem * tinfo ) { /* A lo loco con el mocazo! ...*/
 
 	return false;
 }
 
+bool do_dma_slave_sg ( telem * tinfo ) {
+
+	return
+		do_slave_dev_to_mem ( tinfo ) &&
+		do_slave_mem_to_dev ( tinfo ) &&
+		do_slave_dev_to_dev ( tinfo );
+}

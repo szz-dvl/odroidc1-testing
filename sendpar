@@ -20,7 +20,7 @@ while true ; do
 		-s | --size)
 			size="$2" ; shift 2 ;
 			echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/fifo_size &> /dev/null ;;
-
+		
 		-i | --async)
 
 			if [ "$2" == "" ]; then
@@ -34,7 +34,7 @@ while true ; do
 					async="Y"
 				fi
 			fi
-
+			
 			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
 			shift 2;;
 
@@ -48,7 +48,7 @@ while true ; do
 
 		-d | --defaults)
 			def="Y" ; shift ;;
-
+		
 		--) shift ; break ;;
 		*) echo "Error parsing opts, aborting." ; exit 1 ;;
 	esac
