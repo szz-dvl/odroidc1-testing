@@ -7,7 +7,7 @@ bool do_dma_scatter_gather ( telem * tinfo )
 
 
 /* 
-   ºMaybe it would be nice to split this one here, to have dedicated tests 
+   Maybe it would be nice to split this one to have dedicated tests 
    for asimetric transactions with sgents of diferents sizes for src and dst 
    such as:
 
@@ -19,7 +19,7 @@ bool do_dma_scatter_gather ( telem * tinfo )
 
    [ . . . ]
    
-   Or those achivaebla with interleaved:
+   Or those achivable with interleaved:
 
    src: |===================================================|
    dst: |======| |======| |======| |======| |======| |======|
