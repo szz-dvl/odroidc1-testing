@@ -1,7 +1,7 @@
 #!/bin/bash
-
+	
 echo "value: $(sudo cat /sys/kernel/debug/dmatest/dvc_value)"
-echo "size: $(sudo cat /sys/kernel/debug/dmatest/fifo_size)"
-echo "amount: $(sudo cat /sys/kernel/debug/dmatest/glob_amount)"	
+echo "size: $(sudo cat /sys/kernel/debug/dmatest/glob_size)"
+echo "2d_mode: $(sudo cat /sys/kernel/debug/dmatest/2d_mode)"	
 echo "async: $(sudo cat /sys/kernel/debug/dmatest/async_mode)"
 echo "verbose: $(sudo cat /sys/kernel/debug/dmatest/verbose)"

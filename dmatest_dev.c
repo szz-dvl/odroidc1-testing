@@ -11,6 +11,9 @@ MODULE_PARM_DESC(max_chann, "Maximum number of dma channels available.");
 
 static int dev_open ( struct inode * inod, struct file * file );
 static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, loff_t * off );
+static ssize_t size_receive ( struct file * file, const char *buff, size_t len, loff_t * off );
+static ssize_t size_send ( struct file * file,  char *buff, size_t len, loff_t * off );
+static int size_open (struct inode * inode, struct file * filep);
 static int dev_release ( struct inode * inod, struct file * file );
 static telem * get_free_node ( void );
 static bool register_debugfs ( void );
@@ -19,6 +22,13 @@ static int run_test ( void * tst_num );
 static struct file_operations fops = {
 	.write = dev_receive,
 	.open = dev_open,
+	.release = dev_release
+};
+
+static struct file_operations size_fops = {
+	.write = size_receive,
+	.read = size_send,
+	.open = size_open,
 	.release = dev_release
 };
 
@@ -41,14 +51,18 @@ LIST_HEAD(test_list);
 
 static unsigned int major;
 
+struct dma_attrs dma_attr;
+
 /* Default value for parameters */
 
-unsigned int fifo_size = FIFO_SIZE;
 unsigned int dvc_value = 100;
 unsigned int verbose = 1;
-unsigned int glob_amount = 1;
+unsigned long long glob_size = 4 * 1024;
 
 bool async_mode = true;
+bool mode_2d = false;
+
+char hr_size [32] = "4K";
 
 struct dentry *root;
 
@@ -64,15 +78,11 @@ static bool register_debugfs (void) {
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
-	d = debugfs_create_u32("glob_amount", S_IRUGO | S_IWUSR, root, (u32 *)&glob_amount);
+	d = debugfs_create_file("glob_size", S_IRUGO | S_IWUSR, root, hr_size, &size_fops);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
 	d = debugfs_create_u32("dvc_value", S_IRUGO | S_IWUSR, root, (u32 *)&dvc_value);
-	if (IS_ERR_OR_NULL(d))
-	    goto err_reg;
-	
-	d = debugfs_create_u32("fifo_size", S_IRUGO | S_IWUSR, root, (u32 *)&fifo_size);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -83,6 +93,10 @@ static bool register_debugfs (void) {
 	d = debugfs_create_bool("async_mode", S_IRUGO | S_IWUSR, root, (u32 *)&async_mode);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
+
+	d = debugfs_create_bool("2d_mode", S_IRUGO | S_IWUSR, root, (u32 *)&mode_2d);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
 	
 	return true;
 	
@@ -91,10 +105,47 @@ static bool register_debugfs (void) {
 	return false;
 }
 
-static int dev_open ( struct inode * inod, struct file * file ) {
+static ssize_t size_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
 
+	char * my_size = hr_size;
+
+	if (*off >= 32)
+		return 0;
+	
+	if (*off + len > 32)
+		len = 32 - *off;
+			
+	if (copy_from_user(hr_size + *off, buff, len))
+		return -EFAULT;
+
+	glob_size = memparse(my_size, &my_size);
+
+	*off += len;
+
+	return len;
+}
+
+static ssize_t size_send ( struct file * file, char __user *buff, size_t len, loff_t * off ) {
+
+	if (*off >= 32)
+		return 0;
+	
+	if (*off + len > 32)
+		len = 32 - *off;
+	
+	if (copy_to_user(buff, hr_size + *off, sizeof(hr_size)))
+		return -EFAULT;
+
+	*off += len;
+	
+	return len;
+}
+
+static int size_open (struct inode * inode, struct file * filep) {
+
+	filep->private_data = inode->i_private;
+	
 	return 0;
-
 }
 
 static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
@@ -146,51 +197,60 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	return len;
 }
 
+static int dev_open ( struct inode * inod, struct file * file ) {
+
+	return 0;
+
+}
+
 static int dev_release ( struct inode * inod, struct file * file ) {
 
 	return 0;
 
 }
 
-int my_callback(void * args) {
-
+void finish_transaction (void * args) {
+	
 	telem * tinfo = (telem *) args;
 	tdata * block, * temp;
-	int i, j = 0;
+	enum dma_status to = DMA_SUCCESS;
+	uint i, j = 0;
 	
-	if (tinfo->chan->completed_cookie) {
+	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
-		pr_info("Callback: Moved: %u Bytes in %u nanoseconds.\n", (tinfo->osize * tinfo->amount * sizeof(unsigned long long)), jiffies_to_usecs(jiffies - tinfo->stime));
-
-		list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
+		if (block->tx_desc && !async_mode)
+			to = dma_wait_for_async_tx(block->tx_desc);
+		
+		if (to != DMA_ERROR) {
 			
-			if (block->dst_dma) {
-
-				if (verbose >= 2) {
-
-					pr_info("Block %u [%p][0x%08x]: \n", j, block->input, block->dst_dma);
+			if (block->dst_dma && verbose >= 2) {
+					
+				pr_info("Block %u [%p][0x%08x]: \n", j, block->input, block->dst_dma);
 				
-					for (i = 0; i < tinfo->isize; i++)
-						pr_info("%03d: %03llu, 0x%08llx\n", i, block->input[i], block->input[i]);
-				}
-
-				dma_free_coherent(tinfo->chan->device->dev, tinfo->isize * sizeof(unsigned long long), block->input, block->dst_dma);
+				for (i = 0; i < (tinfo->isize / sizeof(unsigned long long)); i++)
+					pr_info("%03d: %03llu, 0x%08llx\n", i, block->input[i], block->input[i]);
+				
 			}
-			
-			dma_free_coherent(tinfo->chan->device->dev, tinfo->osize * sizeof(unsigned long long), block->output, block->src_dma);
-			list_del(&block->elem);
-			kfree(block);
-			
-			j ++;
 		}
-
-	} else 
-		pr_info("Callback: Bad cookie!\n");
-
+		
+		if (block->dst_dma)
+			dma_free_coherent(tinfo->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+		
+		if (block->src_dma)
+			dma_free_coherent(tinfo->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+		
+		list_del(&block->elem);
+		kfree(block);
+		
+		j ++;
+	}
+	
+	pr_info("Moved: %u Bytes in %u nanoseconds.\n", max(tinfo->osize, tinfo->isize), jiffies_to_usecs(jiffies - tinfo->stime));
 	
 	dma_release_channel ( tinfo->chan );
 	
-	return IRQ_HANDLED;
+	if (async_mode)
+		mutex_unlock ( &tinfo->lock );
 }
 
 bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
@@ -206,24 +266,27 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 
 		if (isize) {
 			
-			block->input = dma_zalloc_coherent(tinfo->chan->device->dev,
-											   isize * sizeof(unsigned long long),
-											   &block->dst_dma,
-											   GFP_ATOMIC); /* GFP_KERNEL hits kernel BUG at mm/vmalloc.c:100 */
+			block->input = dma_alloc_coherent(tinfo->chan->device->dev,
+											  isize,
+											  &block->dst_dma,
+											  GFP_KERNEL); /* GFP_KERNEL hits kernel BUG at mm/vmalloc.c:100 */
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->dst_dma)) 
 				goto map_error;
+			else
+				memset(block->input, 0, isize);
 		}
 		
 		if (osize) {
 			
-			block->output = dma_zalloc_coherent(tinfo->chan->device->dev,
-												osize * sizeof(unsigned long long),
-												&block->src_dma,
-											    GFP_ATOMIC);
+			block->output = dma_alloc_coherent(tinfo->chan->device->dev,
+											   osize,
+											   &block->src_dma,
+											   GFP_KERNEL);
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->src_dma)) 
 				goto map_error;
+			
 		}
 		
 		list_add_tail(&block->elem, &tinfo->data);
@@ -235,12 +298,12 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
     pr_err("Error mapping DMA addresses.");
 	
     list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
-
+		
 		if (block->input)
-			dma_free_coherent(tinfo->chan->device->dev, isize * sizeof(unsigned long long), block->input, block->dst_dma);
+		    dma_free_coherent(tinfo->chan->device->dev, isize, block->input, block->dst_dma);
 		
 		if (block->output)
-			dma_free_coherent(tinfo->chan->device->dev, osize * sizeof(unsigned long long), block->output, block->src_dma);
+		    dma_free_coherent(tinfo->chan->device->dev, osize, block->output, block->src_dma);
 		
 		list_del(&block->elem);
 		kfree(block);
@@ -255,15 +318,16 @@ static int run_test (void * node_ptr) {
 	int ret = false;
 	
 	pr_info("DVC_VALUE: %u\n", dvc_value);
-	pr_info("FIFO_SIZE: %u\n", fifo_size);
-	pr_info("GLOB_AMOUNT: %u\n", glob_amount);
+	pr_info("MOVE_SIZE: %s (%llu Bytes)\n", hr_size, glob_size);
 	pr_info("ASYNC_MODE: %s\n", async_mode ? "true" : "false");
-
+	pr_info("2D_MODE: %s\n", mode_2d ? "true" : "false");
+	
 	node->chan = dma_request_channel ( mask, NULL, NULL );
 
 	/* 
 	   To-Do: A bunch of things!! and add support for terminating cyclic transactions.  
 	*/
+	
 	if (node->chan) {
 		
 		switch (node->tnum) 
@@ -377,14 +441,13 @@ static int run_test (void * node_ptr) {
 		if (!ret)
 			pr_err("Error running test %u.\n", node->tnum);
 		
-		if (!async_mode)
-			dma_release_channel ( node->chan );
-		
 	} else
 		pr_err("No channel available.\n");
 
     node->subt = -1;
-	mutex_unlock ( &node->lock );
+
+	if (!async_mode)
+		mutex_unlock ( &node->lock );
 	
 	return ret;
 }
@@ -409,6 +472,8 @@ static telem * get_free_node (void) {
 static int __init dmatest_init(void)
 {
 	int i;
+
+	init_dma_attrs(&dma_attr);
 	
 	major = register_chrdev(0, "dmatest", &fops);
 	if ( major < 0 ) {

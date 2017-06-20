@@ -17,12 +17,6 @@
 #include <linux/jiffies.h>
 #include <linux/string.h>
 
-#define FIFO_SIZE               32
-#define S805_DMA_MAX_SKIP       0xFFFF
-
-#define WR(data, addr)  *(volatile unsigned long *)(addr)=data
-#define RD(addr)        *(volatile unsigned long *)(addr)
-
 typedef enum test_type {
 	
     DMA_SLAVE_SG,
@@ -76,7 +70,7 @@ typedef struct test_elem {
 } telem;
 
 bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize);
-int my_callback ( void * args );
+void finish_transaction ( void * tinfo );
 
 /* Slave_SG */
 bool do_slave_dev_to_mem ( telem * tinfo );
@@ -111,5 +105,9 @@ bool do_dma_memset ( telem * tinfo );
 bool do_dma_interrupt ( telem * tinfo ); /* Don't know how to do this ...*/
 
 /* Parameters ofered in debugfs */
-extern unsigned int dvc_value, fifo_size, verbose, glob_amount;
-extern bool async_mode;
+extern unsigned int dvc_value, verbose;
+extern bool async_mode, mode_2d;
+extern unsigned long long glob_size;
+
+/* Shared vars */
+extern char hr_size [32];

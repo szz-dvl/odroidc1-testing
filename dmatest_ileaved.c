@@ -7,21 +7,29 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	tdata * block, * temp;
     uint last_icg = 0;
 	int i, j = 0;
-	enum dma_status to;
+	unsigned long array_size;
+	
+	array_size = mode_2d ? (PAGE_SIZE - (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
+	tinfo->amount = DIV_ROUND_UP_ULL(glob_size, array_size);
+	
+	pr_info("Entering %s, size: %s, amount: %u\n", __func__, hr_size, tinfo->amount);
+	
+	/* 
+	   
+	   As the minimum allocation size we can get here, either from the atomic pool or from CMA zone, is PAGE_SIZE
+	   due to alignment requeriments we will merge "tinfo->amount" arrays of size PAGE_SIZE into one big array, if 
+	   2D mode evaluates to true we will make the arrays a little bit smaller to test ICG.
+	   
+	*/
 	
 	xt = kzalloc(sizeof(struct dma_interleaved_template) +
-				 glob_amount * sizeof(struct data_chunk), GFP_KERNEL);
+				 tinfo->amount * sizeof(struct data_chunk), GFP_KERNEL);
 	
-	if (!xt) {
-		
-		kfree(xt);
+	if (!xt) 
 		return false;
-		
-	}
 	
-	tinfo->amount = glob_amount;
-	tinfo->isize = fifo_size * glob_amount;
-	tinfo->osize = fifo_size;
+	tinfo->isize = array_size * tinfo->amount;
+	tinfo->osize = array_size;
 	
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
 		goto cfg_error;
@@ -40,7 +48,6 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	xt->dir = DMA_MEM_TO_MEM;
 	xt->src_inc = true;
 	xt->dst_inc = true;
-	//use icg = 0 here to mix 1D and 2D move!
 	xt->src_sgl = true;
 	xt->dst_sgl = false;
 	xt->numf = 1; 
@@ -48,13 +55,15 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	
 	list_for_each_entry (block, &tinfo->data, elem) {
 		
-		for (i = 0; i < tinfo->osize; i++)
+		for (i = 0; i < (tinfo->osize / sizeof(unsigned long long)); i++)
 			block->output[i] = dvc_value + i + j; 
-
-		xt->sgl[j].size = tinfo->osize * sizeof(unsigned long long);
+		
+		xt->sgl[j].size = tinfo->osize;
 		xt->sgl[j].icg = !list_is_last(&block->elem, &tinfo->data) ?
 			list_next_entry(block, elem)->src_dma - (block->src_dma + xt->sgl[j].size) :
 		    last_icg;
+		
+		pr_info("Block %d (0x%08x): size->%u, icg->%u\n", j, block->src_dma, xt->sgl[j].size, xt->sgl[j].icg);
 		
 		last_icg = xt->sgl[j].icg;
 		j++;
@@ -69,7 +78,7 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	} else
 		pr_info("Got descriptor: %pB\n", temp->tx_desc);
 	
-    temp->tx_desc->callback = async_mode ? (void *) &my_callback : NULL;
+    temp->tx_desc->callback = async_mode ? (void *) &finish_transaction : NULL;
     temp->tx_desc->callback_param = async_mode ? (void *) tinfo : NULL;
 	
 	temp->tx_cookie = dmaengine_submit(temp->tx_desc);
@@ -83,34 +92,9 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	tinfo->stime = jiffies;
 	dma_async_issue_pending(tinfo->chan);
 	
-	if (!async_mode) {
-		
-		to = dma_wait_for_async_tx(temp->tx_desc);
-
-		if (to != DMA_ERROR)
-			pr_info("Transcation finished, Moved %u Bytes in %u nanoseconds.\n", (tinfo->osize * tinfo->amount * sizeof(unsigned long long)), jiffies_to_usecs(jiffies - tinfo->stime));
-		
-		if (verbose >= 2) {
-			
-			pr_info("Block [%p][0x%08x]: \n", temp->input, temp->dst_dma);
-			
-			for (i = 0; i < tinfo->isize; i++)
-				pr_info("%03d: %03llu, 0x%08llx\n", i, temp->input[i], temp->input[i]);
-		}
-		
-		dma_free_coherent(tinfo->chan->device->dev, tinfo->isize * sizeof(unsigned long long), temp->input, temp->dst_dma);
-		dma_free_coherent(tinfo->chan->device->dev, tinfo->osize * sizeof(unsigned long long), temp->output, temp->src_dma);
-		list_del(&temp->elem);
-		kfree(temp);
-		
-		list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
-			
-			dma_free_coherent(tinfo->chan->device->dev, tinfo->osize * sizeof(unsigned long long), block->output, block->src_dma);
-			list_del(&block->elem);
-			kfree(block);	
-		}
-	}
-
+	if (!async_mode) 
+		finish_transaction ( tinfo );
+	
 	kfree(xt);
 	
 	return true;
@@ -121,13 +105,13 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 		
 		if (block->dst_dma)
-			dma_free_coherent(tinfo->chan->device->dev, tinfo->isize * sizeof(unsigned long long), block->input, block->dst_dma);
+			dma_free_coherent(tinfo->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
 		
-		dma_free_coherent(tinfo->chan->device->dev, tinfo->osize * sizeof(unsigned long long), block->output, block->src_dma);
+	    dma_free_coherent(tinfo->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 		list_del(&block->elem);
 		kfree(block);
 	}
-
+	
 	kfree(xt);
 	
 	return false;
