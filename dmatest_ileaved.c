@@ -61,9 +61,10 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 		xt->sgl[j].size = tinfo->osize;
 		xt->sgl[j].icg = !list_is_last(&block->elem, &tinfo->data) ?
 			list_next_entry(block, elem)->src_dma - (block->src_dma + xt->sgl[j].size) :
-		    15;//last_icg;
-		
-		pr_info("Block %d (0x%08x): size->%u, icg->%u\n", j, block->src_dma, xt->sgl[j].size, xt->sgl[j].icg);
+		    last_icg;
+
+		if (verbose >= 2)
+			pr_info("Block %d (0x%08x - 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
 		
 		last_icg = xt->sgl[j].icg;
 		j++;

@@ -109,19 +109,21 @@ static ssize_t size_receive ( struct file * file, const char *buff, size_t len, 
 
 	char * my_size = hr_size;
 	
+    memset(my_size, 0, sizeof(hr_size));
+	
 	if (*off >= 32) 
 		return 0;
 	
 	if (*off + len > 32)
 		len = 32 - *off;
-			
+	
 	if (copy_from_user(hr_size + *off, buff, len))
 		return -EFAULT;
-
+	
 	glob_size = memparse(my_size, &my_size);
 	
 	*off += len;
-
+	
 	return len;
 }
 
@@ -223,7 +225,7 @@ void finish_transaction (void * args) {
 		
 		if (to != DMA_ERROR) {
 			
-			if (block->dst_dma && verbose >= 2) {
+			if (block->dst_dma && verbose >= 3) {
 					
 				pr_info("Block %u [%p][0x%08x]: \n", j, block->input, block->dst_dma);
 				
@@ -321,6 +323,7 @@ static int run_test (void * node_ptr) {
 	pr_info("MOVE_SIZE: %s (%llu Bytes)\n", hr_size, glob_size);
 	pr_info("ASYNC_MODE: %s\n", async_mode ? "true" : "false");
 	pr_info("2D_MODE: %s\n", mode_2d ? "true" : "false");
+	pr_info("VERBOSE: %u\n", verbose);
 	
 	node->chan = dma_request_channel ( mask, NULL, NULL );
 

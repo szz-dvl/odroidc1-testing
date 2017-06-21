@@ -11,7 +11,7 @@ if [ ! -z "$2" ] && [ "$2" == "N" ]; then
 	async="N"
 fi
 
-./sendpar --value 100 --size "$size" --async="$async" --verbose 1
+./sendpar --value 100 --size "$size" --async="$async"
 
 sudo dmesg --clear
 
