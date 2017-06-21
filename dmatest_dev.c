@@ -108,8 +108,8 @@ static bool register_debugfs (void) {
 static ssize_t size_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
 
 	char * my_size = hr_size;
-
-	if (*off >= 32)
+	
+	if (*off >= 32) 
 		return 0;
 	
 	if (*off + len > 32)
@@ -119,7 +119,7 @@ static ssize_t size_receive ( struct file * file, const char *buff, size_t len, 
 		return -EFAULT;
 
 	glob_size = memparse(my_size, &my_size);
-
+	
 	*off += len;
 
 	return len;
@@ -135,7 +135,7 @@ static ssize_t size_send ( struct file * file, char __user *buff, size_t len, lo
 	
 	if (copy_to_user(buff, hr_size + *off, sizeof(hr_size)))
 		return -EFAULT;
-
+	
 	*off += len;
 	
 	return len;
@@ -245,7 +245,7 @@ void finish_transaction (void * args) {
 		j ++;
 	}
 	
-	pr_info("Moved: %u Bytes in %u nanoseconds.\n", max(tinfo->osize, tinfo->isize), jiffies_to_usecs(jiffies - tinfo->stime));
+	pr_info("Moved %u Bytes in %u nanoseconds.\n", max(tinfo->osize, tinfo->isize), jiffies_to_usecs(jiffies - tinfo->stime));
 	
 	dma_release_channel ( tinfo->chan );
 	
@@ -269,7 +269,7 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 			block->input = dma_alloc_coherent(tinfo->chan->device->dev,
 											  isize,
 											  &block->dst_dma,
-											  GFP_KERNEL); /* GFP_KERNEL hits kernel BUG at mm/vmalloc.c:100 */
+											  async_mode ? GFP_ATOMIC : GFP_KERNEL); /* Frees will fail if in_interrupt() and allocated as GFP_KERNEL, more info: arch/arm/mm/dma-mapping.c */
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->dst_dma)) 
 				goto map_error;
@@ -282,12 +282,12 @@ bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
 			block->output = dma_alloc_coherent(tinfo->chan->device->dev,
 											   osize,
 											   &block->src_dma,
-											   GFP_KERNEL);
+											   async_mode ? GFP_ATOMIC : GFP_KERNEL);
 			
 			if (dma_mapping_error(tinfo->chan->device->dev, block->src_dma)) 
 				goto map_error;
 			
-		}
+		} 
 		
 		list_add_tail(&block->elem, &tinfo->data);
 	}

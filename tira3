@@ -3,12 +3,12 @@
 size="8K"
 async="Y"
 
-if [ ! -z "$1" ] && [ "$1" == "N" ]; then
-	async="N"
+if [ ! -z "$1" ]; then
+	size="$1"
 fi
 
-if [ ! -z "$2" ]; then
-	size="$2"
+if [ ! -z "$2" ] && [ "$2" == "N" ]; then
+	async="N"
 fi
 
 ./sendpar --value 100 --size "$size" --async="$async" --verbose 1
