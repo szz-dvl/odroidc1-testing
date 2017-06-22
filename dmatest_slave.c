@@ -8,8 +8,8 @@ bool do_slave_dev_to_mem ( telem * tinfo ) {
 	
 	tinfo->amount = DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE);
 	tinfo->isize = PAGE_SIZE;
-	tinfo->osize = 1;
-
+	tinfo->osize = sizeof(unsigned long long);
+	
 	pr_info("Entering %s, size: %s, amount: %u\n", __func__, hr_size, tinfo->amount);
 	
 	if ( !allocate_arrays (tinfo, tinfo->amount, tinfo->isize, tinfo->osize) )
