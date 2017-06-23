@@ -211,22 +211,51 @@ static int dev_release ( struct inode * inod, struct file * file ) {
 
 }
 
-void finish_transaction (void * args) {
+bool submit_transaction ( telem * tinfo ) {
+	
+	if(!tinfo->tx_desc) {
+		
+		pr_err("Unable to get descriptor\n");
+		return false;
+		
+	} else
+		pr_info("Got descriptor: %pB\n", tinfo->tx_desc);
+	
+    tinfo->tx_desc->callback = async_mode ? (void *) &finish_transaction : NULL;
+	tinfo->tx_desc->callback_param = async_mode ? (void *) tinfo : NULL;
+	
+	tinfo->tx_cookie = dmaengine_submit(tinfo->tx_desc);
+	
+	if(tinfo->tx_cookie < 0) 
+		pr_err("Error submitting transaction: %d\n", tinfo->tx_cookie);
+	else
+		pr_info("Cookie submitted: %d\n", tinfo->tx_cookie);
+	
+	tinfo->stime = jiffies;
+	dma_async_issue_pending(tinfo->chan);
+	
+	if (!async_mode) 	
+		return finish_transaction ( tinfo );
+	
+	return true;
+}
+
+bool finish_transaction (void * args) {
 	
 	telem * tinfo = (telem *) args;
 	tdata * block, * temp;
 	enum dma_status to = DMA_SUCCESS;
 	uint i, j = 0;
+
+	if (!async_mode)
+		to = dma_wait_for_async_tx(tinfo->tx_desc);
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
-		
-		if (block->tx_desc && !async_mode)
-			to = dma_wait_for_async_tx(block->tx_desc);
 		
 		if (to != DMA_ERROR) {
 			
 			if (block->dst_dma && verbose >= 3) {
-					
+				
 				pr_info("Block %u [%p][0x%08x]: \n", j, block->input, block->dst_dma);
 				
 				for (i = 0; i < (tinfo->isize / sizeof(unsigned long long)); i++)
@@ -247,12 +276,16 @@ void finish_transaction (void * args) {
 		j ++;
 	}
 	
-	pr_info("Moved %u Bytes in %u nanoseconds.\n", max(tinfo->osize, tinfo->isize), jiffies_to_usecs(jiffies - tinfo->stime));
+	pr_info("Moved %s (%llu Bytes) in %u nanoseconds.\n", hr_size, glob_size, jiffies_to_usecs(jiffies - tinfo->stime));
 	
 	dma_release_channel ( tinfo->chan );
 	
 	if (async_mode)
 		mutex_unlock ( &tinfo->lock );
+	
+	/* TO-DO: check results. */
+	
+    return to != DMA_ERROR;
 }
 
 bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize) {
@@ -436,13 +469,14 @@ static int run_test (void * node_ptr) {
 				
 			default: 
 				
-				pr_err("Invalid test requested: %u\n", node->tnum);
+				pr_err("Invalid test requested: %u.\n", node->tnum);
 				ret = false;
 				
 			};
 	
 		if (!ret)
 			pr_err("Error running test %u.\n", node->tnum);
+		
 		
 	} else
 		pr_err("No channel available.\n");
@@ -451,7 +485,7 @@ static int run_test (void * node_ptr) {
 
 	if (!async_mode)
 		mutex_unlock ( &node->lock );
-	
+
 	return ret;
 }
 

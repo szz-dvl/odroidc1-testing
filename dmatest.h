@@ -16,6 +16,7 @@
 #include <linux/kthread.h>
 #include <linux/jiffies.h>
 #include <linux/string.h>
+#include <linux/scatterlist.h>
 
 typedef enum test_type {
 	
@@ -37,9 +38,6 @@ typedef struct test_data {
 	/* DMA config fields */
     dma_addr_t src_dma;
 	dma_addr_t dst_dma;
-	dma_cookie_t tx_cookie;
-	struct dma_slave_config config;
-	struct dma_async_tx_descriptor * tx_desc;
 	
 	/* Data fields */
 	unsigned long long * input;
@@ -62,7 +60,10 @@ typedef struct test_elem {
 
 	unsigned int tnum;
 	int subt;
-	
+
+	dma_cookie_t tx_cookie;
+	struct dma_async_tx_descriptor * tx_desc;
+	struct dma_slave_config config;
 	struct task_struct * thread;
 	
 	unsigned long stime;
@@ -70,7 +71,8 @@ typedef struct test_elem {
 } telem;
 
 bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize);
-void finish_transaction ( void * tinfo );
+bool finish_transaction ( void * tinfo );
+bool submit_transaction ( telem * tinfo );
 
 /* Slave_SG */
 bool do_slave_dev_to_mem ( telem * tinfo );

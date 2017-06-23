@@ -38,7 +38,7 @@ while true ; do
 			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
 			shift 2;;
 
-		-2 | --mode2d)
+		-2 | --2dmode)
 			
 			if [ ! -z "$2" ]; then
 			    mode2d="$2"

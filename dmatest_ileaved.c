@@ -40,8 +40,8 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 		else
 			pr_info("Succefully mapped dst and src dma addresses.\n");
 	}
-	
-    temp = list_first_entry_or_null(&tinfo->data, tdata, elem);
+
+	temp = list_first_entry(&tinfo->data, tdata, elem);
 	
 	xt->src_start = temp->src_dma;
 	xt->dst_start = temp->dst_dma;
@@ -71,30 +71,10 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	}
 	
 	pr_info("Config ready!\n");
-    temp->tx_desc = dmaengine_prep_interleaved_dma(tinfo->chan, xt, flags);
-	
-	if(!temp->tx_desc) {
-		pr_err("Unable to get descriptor\n");
+    tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->chan, xt, flags);
+
+	if (!submit_transaction(tinfo))
 		goto cfg_error;
-	} else
-		pr_info("Got descriptor: %pB\n", temp->tx_desc);
-	
-    temp->tx_desc->callback = async_mode ? (void *) &finish_transaction : NULL;
-    temp->tx_desc->callback_param = async_mode ? (void *) tinfo : NULL;
-	
-	temp->tx_cookie = dmaengine_submit(temp->tx_desc);
-	
-	if (temp->tx_cookie < 0) {
-		pr_err("Error submitting transaction: %d\n", temp->tx_cookie);
-	 	goto cfg_error;
-	} else
-		pr_info("Cookie submitted: %d\n", temp->tx_cookie);
-	
-	tinfo->stime = jiffies;
-	dma_async_issue_pending(tinfo->chan);
-	
-	if (!async_mode) 
-		finish_transaction ( tinfo );
 	
 	kfree(xt);
 	
