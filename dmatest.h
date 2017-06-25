@@ -19,7 +19,7 @@
 #include <linux/scatterlist.h>
 
 typedef enum test_type {
-	
+
     DMA_SLAVE_SG,
 	DMA_SCAT_GATH,
 	DMA_CYCL,
@@ -27,7 +27,9 @@ typedef enum test_type {
 	DMA_IRQ,
 	DMA_MCPY,
 	DMA_MSET,
-	ALL,
+	ALL_TESTS,
+	ISSUE_JOBS,
+	TERMINATE_NODE,
 
 } ttype;
 
@@ -44,67 +46,87 @@ typedef struct test_data {
 	unsigned long long * output;
 	
 } tdata;
-
+	
 typedef struct test_elem {
+
+	uint id;
+
+	spinlock_t lock;
 	
+	struct list_head jobs;
 	struct list_head elem;
-	struct mutex lock;
-	struct dma_chan * chan;
 	
-	/* Data fields */ 
-	struct list_head data;
+	struct dma_chan * chan;
+
+	unsigned int cmd;
+	int args;
+	
+	unsigned int batch_size;
+	unsigned int pending;
+	
+} telem;
+
+typedef struct test_job {
+
+	struct list_head elem;
+
+	telem * parent;
+	const char * tname;
 	
 	unsigned int osize;
 	unsigned int isize;
 	unsigned int amount;
-
-	unsigned int tnum;
-	int subt;
+	
+	/* Data fields */ 
+	struct list_head data;
 
 	dma_cookie_t tx_cookie;
 	struct dma_async_tx_descriptor * tx_desc;
 	struct dma_slave_config config;
-	struct task_struct * thread;
+
+	unsigned int tnum;
+	int subt;
 	
 	unsigned long stime;
-	
-} telem;
 
-bool allocate_arrays (telem * tinfo, uint amount, uint isize, uint osize);
-bool finish_transaction ( void * tinfo );
-bool submit_transaction ( telem * tinfo );
+	bool async;
+	
+} tjob;
+
+bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize);
+bool submit_transaction ( tjob * tinfo );
 
 /* Slave_SG */
-bool do_slave_dev_to_mem ( telem * tinfo );
-bool do_slave_mem_to_dev ( telem * tinfo );
-bool do_slave_dev_to_dev ( telem * tinfo );
-bool do_dma_slave_sg ( telem * tinfo );
+bool do_slave_dev_to_mem ( tjob * tinfo );
+bool do_slave_mem_to_dev ( tjob * tinfo );
+bool do_slave_dev_to_dev ( tjob * tinfo );
+bool do_dma_slave_sg ( tjob * tinfo );
 
 /* Interleaved */
-bool do_interleaved_mem_to_mem ( telem * tinfo );
-bool do_interleaved_dev_to_mem ( telem * tinfo );
-bool do_interleaved_mem_to_dev ( telem * tinfo );
-bool do_interleaved_dev_to_dev ( telem * tinfo );
-bool do_dma_ileaved ( telem * tinfo );
+bool do_interleaved_mem_to_mem ( tjob * tinfo );
+bool do_interleaved_dev_to_mem ( tjob * tinfo );
+bool do_interleaved_mem_to_dev ( tjob * tinfo );
+bool do_interleaved_dev_to_dev ( tjob * tinfo );
+bool do_dma_ileaved ( tjob * tinfo );
 
 /* Cyclic */
-bool do_cyclic_dev_to_mem ( telem * tinfo );
-bool do_cyclic_dev_to_dev ( telem * tinfo );
-bool do_cyclic_mem_to_dev ( telem * tinfo );
-bool do_cyclic_mem_to_mem ( telem * tinfo );
-bool do_dma_cyclic ( telem * tinfo );
+bool do_cyclic_dev_to_mem ( tjob * tinfo );
+bool do_cyclic_dev_to_dev ( tjob * tinfo );
+bool do_cyclic_mem_to_dev ( tjob * tinfo );
+bool do_cyclic_mem_to_mem ( tjob * tinfo );
+bool do_dma_cyclic ( tjob * tinfo );
 
 /* DMA_SG: */
-bool do_dma_scatter_gather ( telem * tinfo );
+bool do_dma_scatter_gather ( tjob * tinfo );
 
 /* DMA_MemCopy: */
-bool do_dma_memcpy ( telem * tinfo );
+bool do_dma_memcpy ( tjob * tinfo );
 
 /* DMA_MemSet: */
-bool do_dma_memset ( telem * tinfo );
+bool do_dma_memset ( tjob * tinfo );
 
 /* DMA_Interrupt: */
-bool do_dma_interrupt ( telem * tinfo ); /* Don't know how to do this ...*/
+bool do_dma_interrupt ( tjob * tinfo ); /* Don't know how to do this ...*/
 
 /* Parameters ofered in debugfs */
 extern unsigned int dvc_value, verbose;

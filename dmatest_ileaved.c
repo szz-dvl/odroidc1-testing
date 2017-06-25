@@ -1,6 +1,6 @@
 #include "dmatest.h"
 
-bool do_interleaved_mem_to_mem ( telem * tinfo ) {
+bool do_interleaved_mem_to_mem ( tjob * tinfo ) {
 	
     struct dma_interleaved_template *xt;
 	unsigned long flags = 0;
@@ -11,8 +11,10 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	
 	array_size = mode_2d ? (PAGE_SIZE - (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
 	tinfo->amount = DIV_ROUND_UP_ULL(glob_size, array_size);
+
+	tinfo->tname = __func__;
 	
-	pr_info("Entering %s, size: %s, amount: %u\n", __func__, hr_size, tinfo->amount);
+	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
 	
 	/* 
 	   
@@ -64,14 +66,14 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 		    last_icg;
 
 		if (verbose >= 2)
-			pr_info("Block %d (0x%08x - 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
+			pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
 		
 		last_icg = xt->sgl[j].icg;
 		j++;
 	}
 	
 	pr_info("Config ready!\n");
-    tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->chan, xt, flags);
+    tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->parent->chan, xt, flags);
 
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
@@ -86,9 +88,10 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 		
 		if (block->dst_dma)
-			dma_free_coherent(tinfo->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+			dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
 		
-	    dma_free_coherent(tinfo->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+	    dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+		
 		list_del(&block->elem);
 		kfree(block);
 	}
@@ -98,22 +101,22 @@ bool do_interleaved_mem_to_mem ( telem * tinfo ) {
 	return false;
 }
 
-bool do_interleaved_dev_to_mem ( telem * tinfo )
+bool do_interleaved_dev_to_mem ( tjob * tinfo )
 {
 	return false;
 };
 
-bool do_interleaved_mem_to_dev ( telem * tinfo )
+bool do_interleaved_mem_to_dev ( tjob * tinfo )
 {
 	return false;
 };
 
-bool do_interleaved_dev_to_dev ( telem * tinfo )
+bool do_interleaved_dev_to_dev ( tjob * tinfo )
 {
 	return false;
 };
 
-bool do_dma_ileaved ( telem * tinfo )
+bool do_dma_ileaved ( tjob * tinfo )
 {
 	return
 		do_interleaved_mem_to_mem ( tinfo ) &&

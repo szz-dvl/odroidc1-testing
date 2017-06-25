@@ -5,10 +5,11 @@ verbose=1
 size="4K"
 async="Y"
 mode2d="N"
+batch="N"
 def=""
 
 # read the options
-TEMP=`getopt -o n:s:a::v:2::d --long value:,size:,async::,verbose:,2dmode::,defaults -n 'sendpar' -- "$@"`
+TEMP=`getopt -o n:s:a::b::v:2::d --long value:,size:,async::,batch::,verbose:,2dmode::,defaults -n 'sendpar' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -37,7 +38,24 @@ while true ; do
 			
 			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
 			shift 2;;
+		
+		-b | --batch)
 
+			if [ ! -z "$2" ]; then
+				batch="$2"
+			else
+				old=$(sudo cat /sys/kernel/debug/dmatest/batch_mode)
+				
+				if [ "$old" == "Y" ]; then
+					batch="N"
+				else
+				    batch="Y"
+				fi
+			fi
+			
+			echo -n "$batch" | sudo tee /sys/kernel/debug/dmatest/batch_mode &> /dev/null
+			shift 2;;
+		
 		-2 | --2dmode)
 			
 			if [ ! -z "$2" ]; then
@@ -74,6 +92,7 @@ if [ ! -z "$def" ]; then
 	echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
 	echo -n "$mode2d" | sudo tee /sys/kernel/debug/dmatest/2d_mode &> /dev/null
 	echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null
-
+	echo -n "$batch" | sudo tee /sys/kernel/debug/dmatest/batch_mode &> /dev/null
+	
 fi
 

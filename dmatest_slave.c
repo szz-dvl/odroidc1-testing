@@ -1,18 +1,20 @@
 #include "dmatest.h"
 
-bool do_slave_dev_to_mem ( telem * tinfo ) {
+bool do_slave_dev_to_mem ( tjob * tinfo ) {
     
 	unsigned long flags = 0;
 	tdata * block, * temp;
     struct sg_table sgt;
 	struct scatterlist * sgl;
-	int ret;
+	int ret, j;
 	
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE) : 1;
 	tinfo->isize = mode_2d ? PAGE_SIZE : glob_size;
 	tinfo->osize = sizeof(unsigned long long);
+
+	tinfo->tname = __func__; /* to avoid kmalloc, far from well done ... =S */
 	
-	pr_info("Entering %s, size: %s, amount: %u\n", __func__, hr_size, tinfo->amount);
+	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
 	
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
 	    goto cfg_error;
@@ -32,7 +34,7 @@ bool do_slave_dev_to_mem ( telem * tinfo ) {
 	
 	*temp->output = dvc_value;
 	
-	ret = dmaengine_slave_config(tinfo->chan, &tinfo->config);
+	ret = dmaengine_slave_config(tinfo->parent->chan, &tinfo->config);
 	
 	/* All functions that run "device_control" must return the status of the channel, in this case DMA_SUCCESS */
 	if (ret != DMA_SUCCESS)
@@ -45,26 +47,33 @@ bool do_slave_dev_to_mem ( telem * tinfo ) {
 	    sg_alloc_table(&sgt, tinfo->amount, GFP_KERNEL);
 		sgl = sgt.sgl;
 		block = temp;
+		temp = list_next_entry(block, elem);
+		j = 0;
 		
 		while (sgl) {
 			
 			sg_dma_address(sgl) = block->dst_dma;
 			sg_dma_len(sgl) = tinfo->isize;
 			
+			if (verbose >= 2)
+				pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, sg_dma_len(sgl), temp->dst_dma - (block->dst_dma + sg_dma_len(sgl)));
+			
 		    sgl = sg_next(sgl);
-			block = list_next_entry(block, elem);
+			block = temp;
+		    temp = list_next_entry(block, elem);
+			j++;
 		}
 		
-	    tinfo->tx_desc = dmaengine_prep_slave_sg(tinfo->chan,
+	    tinfo->tx_desc = dmaengine_prep_slave_sg(tinfo->parent->chan,
 												 sgt.sgl,
 												 tinfo->amount,
 												 DMA_DEV_TO_MEM,
 												 flags);
 		
 		sg_free_table(&sgt);
-			
+		
 	} else 
-		tinfo->tx_desc = dmaengine_prep_slave_single(tinfo->chan,
+		tinfo->tx_desc = dmaengine_prep_slave_single(tinfo->parent->chan,
 													 temp->dst_dma,
 													 tinfo->isize,
 													 DMA_DEV_TO_MEM,
@@ -81,8 +90,9 @@ bool do_slave_dev_to_mem ( telem * tinfo ) {
 	
     list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 		
-	    dma_free_coherent(tinfo->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
-	    dma_free_coherent(tinfo->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+	    dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+	    dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+		
 		list_del(&block->elem);
 		kfree(block);
 	}
@@ -90,17 +100,17 @@ bool do_slave_dev_to_mem ( telem * tinfo ) {
 	return false;
 }
 
-bool do_slave_mem_to_dev ( telem * tinfo ) {
+bool do_slave_mem_to_dev ( tjob * tinfo ) {
 	
 	return false;
 }
 
-bool do_slave_dev_to_dev ( telem * tinfo ) { 
+bool do_slave_dev_to_dev ( tjob * tinfo ) { 
 	
 	return false;
 }
 
-bool do_dma_slave_sg ( telem * tinfo ) {
+bool do_dma_slave_sg ( tjob * tinfo ) { /* Will fail */
 	
 	return
 		do_slave_dev_to_mem ( tinfo ) &&

@@ -1,6 +1,6 @@
 #include "dmatest.h"
 
-bool do_dma_scatter_gather ( telem * tinfo )
+bool do_dma_scatter_gather ( tjob * tinfo )
 {
 	return false;
 };

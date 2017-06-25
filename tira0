@@ -15,7 +15,7 @@ fi
 
 sudo dmesg --clear
 
-./sendtest 0 0
+./sendcmd 0,0
 
 sleep 1
 dmesg
