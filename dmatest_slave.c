@@ -1,17 +1,19 @@
 #include "dmatest.h"
 
-bool do_slave_dev_to_mem ( tjob * tinfo ) {
+bool do_slave_dev_to_mem ( telem * node ) {
     
 	unsigned long flags = 0;
 	tdata * block, * temp;
     struct sg_table sgt;
 	struct scatterlist * sgl;
 	int ret, j;
-	
+	tjob * tinfo = init_job(node, 0, 0); 
+
+	node->selectable = true;
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE) : 1;
 	tinfo->isize = mode_2d ? PAGE_SIZE : glob_size;
 	tinfo->osize = sizeof(unsigned long long);
-
+	
 	tinfo->tname = __func__; /* to avoid kmalloc, far from well done ... =S */
 	
 	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
@@ -56,14 +58,14 @@ bool do_slave_dev_to_mem ( tjob * tinfo ) {
 			sg_dma_len(sgl) = tinfo->isize;
 			
 			if (verbose >= 2)
-				pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, sg_dma_len(sgl), temp->dst_dma - (block->dst_dma + sg_dma_len(sgl)));
+				pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, sg_dma_len(sgl), (void *) temp != (void *) &tinfo->data ? (temp->dst_dma - (block->dst_dma + sg_dma_len(sgl))) : 0);
 			
 		    sgl = sg_next(sgl);
 			block = temp;
-		    temp = list_next_entry(block, elem);
+		    temp = list_next_entry(block, elem);  
 			j++;
 		}
-		
+
 	    tinfo->tx_desc = dmaengine_prep_slave_sg(tinfo->parent->chan,
 												 sgt.sgl,
 												 tinfo->amount,
@@ -100,20 +102,20 @@ bool do_slave_dev_to_mem ( tjob * tinfo ) {
 	return false;
 }
 
-bool do_slave_mem_to_dev ( tjob * tinfo ) {
+bool do_slave_mem_to_dev ( telem * node ) {
 	
 	return false;
 }
 
-bool do_slave_dev_to_dev ( tjob * tinfo ) { 
+bool do_slave_dev_to_dev ( telem * node ) { 
 	
 	return false;
 }
 
-bool do_dma_slave_sg ( tjob * tinfo ) { /* Will fail */
+bool do_dma_slave_sg ( telem * node ) { /* Will fail */
 	
 	return
-		do_slave_dev_to_mem ( tinfo ) &&
-		do_slave_mem_to_dev ( tinfo ) &&
-		do_slave_dev_to_dev ( tinfo );
+		do_slave_dev_to_mem ( node ) &&
+		do_slave_mem_to_dev ( node ) &&
+		do_slave_dev_to_dev ( node );
 }

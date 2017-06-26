@@ -1,6 +1,6 @@
 #include "dmatest.h"
 
-bool do_interleaved_mem_to_mem ( tjob * tinfo ) {
+bool do_interleaved_mem_to_mem ( telem * node ) {
 	
     struct dma_interleaved_template *xt;
 	unsigned long flags = 0;
@@ -8,7 +8,9 @@ bool do_interleaved_mem_to_mem ( tjob * tinfo ) {
     uint last_icg = 0;
 	int i, j = 0;
 	unsigned long array_size;
-	
+	tjob * tinfo = init_job(node, 3, 0);
+
+	node->selectable = true;
 	array_size = mode_2d ? (PAGE_SIZE - (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
 	tinfo->amount = DIV_ROUND_UP_ULL(glob_size, array_size);
 
@@ -101,26 +103,26 @@ bool do_interleaved_mem_to_mem ( tjob * tinfo ) {
 	return false;
 }
 
-bool do_interleaved_dev_to_mem ( tjob * tinfo )
+bool do_interleaved_dev_to_mem ( telem * node )
 {
 	return false;
 };
 
-bool do_interleaved_mem_to_dev ( tjob * tinfo )
+bool do_interleaved_mem_to_dev ( telem * node )
 {
 	return false;
 };
 
-bool do_interleaved_dev_to_dev ( tjob * tinfo )
+bool do_interleaved_dev_to_dev ( telem * node )
 {
 	return false;
 };
 
-bool do_dma_ileaved ( tjob * tinfo )
+bool do_dma_ileaved ( telem * node )
 {
 	return
-		do_interleaved_mem_to_mem ( tinfo ) &&
-		do_interleaved_dev_to_mem ( tinfo ) &&
-		do_interleaved_mem_to_dev ( tinfo ) &&
-		do_interleaved_dev_to_dev ( tinfo );
+		do_interleaved_mem_to_mem ( node ) &&
+		do_interleaved_dev_to_mem ( node ) &&
+		do_interleaved_mem_to_dev ( node ) &&
+		do_interleaved_dev_to_dev ( node );
 }

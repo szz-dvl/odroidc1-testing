@@ -1,6 +1,6 @@
 #include "dmatest.h"
 
-bool do_dma_memcpy ( tjob * tinfo )
+bool do_dma_memcpy ( telem * node )
 {
 	return false;
 };

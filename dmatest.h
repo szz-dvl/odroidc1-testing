@@ -52,6 +52,7 @@ typedef struct test_elem {
 	uint id;
 
 	spinlock_t lock;
+	bool selectable;
 	
 	struct list_head jobs;
 	struct list_head elem;
@@ -69,7 +70,7 @@ typedef struct test_elem {
 typedef struct test_job {
 
 	struct list_head elem;
-
+	
 	telem * parent;
 	const char * tname;
 	
@@ -93,40 +94,41 @@ typedef struct test_job {
 	
 } tjob;
 
-bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize);
+tjob * init_job ( telem * node, uint test, int subtest);
+bool allocate_arrays ( tjob * tinfo, uint amount, uint isize, uint osize );
 bool submit_transaction ( tjob * tinfo );
 
 /* Slave_SG */
-bool do_slave_dev_to_mem ( tjob * tinfo );
-bool do_slave_mem_to_dev ( tjob * tinfo );
-bool do_slave_dev_to_dev ( tjob * tinfo );
-bool do_dma_slave_sg ( tjob * tinfo );
+bool do_slave_dev_to_mem ( telem * node );
+bool do_slave_mem_to_dev ( telem * node );
+bool do_slave_dev_to_dev ( telem * node );
+bool do_dma_slave_sg ( telem * node );
 
 /* Interleaved */
-bool do_interleaved_mem_to_mem ( tjob * tinfo );
-bool do_interleaved_dev_to_mem ( tjob * tinfo );
-bool do_interleaved_mem_to_dev ( tjob * tinfo );
-bool do_interleaved_dev_to_dev ( tjob * tinfo );
-bool do_dma_ileaved ( tjob * tinfo );
+bool do_interleaved_mem_to_mem ( telem * node );
+bool do_interleaved_dev_to_mem ( telem * node );
+bool do_interleaved_mem_to_dev ( telem * node );
+bool do_interleaved_dev_to_dev ( telem * node );
+bool do_dma_ileaved ( telem * node );
 
 /* Cyclic */
-bool do_cyclic_dev_to_mem ( tjob * tinfo );
-bool do_cyclic_dev_to_dev ( tjob * tinfo );
-bool do_cyclic_mem_to_dev ( tjob * tinfo );
-bool do_cyclic_mem_to_mem ( tjob * tinfo );
-bool do_dma_cyclic ( tjob * tinfo );
+bool do_cyclic_dev_to_mem ( telem * node );
+bool do_cyclic_dev_to_dev ( telem * node );
+bool do_cyclic_mem_to_dev ( telem * node );
+bool do_cyclic_mem_to_mem ( telem * node );
+bool do_dma_cyclic ( telem * node );
 
 /* DMA_SG: */
-bool do_dma_scatter_gather ( tjob * tinfo );
+bool do_dma_scatter_gather ( telem * node );
 
 /* DMA_MemCopy: */
-bool do_dma_memcpy ( tjob * tinfo );
+bool do_dma_memcpy ( telem * node );
 
 /* DMA_MemSet: */
-bool do_dma_memset ( tjob * tinfo );
+bool do_dma_memset ( telem * node );
 
 /* DMA_Interrupt: */
-bool do_dma_interrupt ( tjob * tinfo ); /* Don't know how to do this ...*/
+bool do_dma_interrupt ( telem * node ); /* Don't know how to do this ...*/
 
 /* Parameters ofered in debugfs */
 extern unsigned int dvc_value, verbose;
