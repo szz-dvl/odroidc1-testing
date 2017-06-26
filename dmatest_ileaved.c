@@ -10,7 +10,6 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 	unsigned long array_size;
 	tjob * tinfo = init_job(node, 3, 0);
 
-	node->selectable = true;
 	array_size = mode_2d ? (PAGE_SIZE - (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
 	tinfo->amount = DIV_ROUND_UP_ULL(glob_size, array_size);
 

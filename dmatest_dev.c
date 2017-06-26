@@ -56,6 +56,7 @@ LIST_HEAD(jobs_list);
 static unsigned int major;
 
 struct dma_attrs dma_attr;
+static unsigned long long max_size = UINT_MAX;
 
 /* Default value for parameters */
 
@@ -130,6 +131,15 @@ static ssize_t size_receive ( struct file * file, const char *buff, size_t len, 
 		return -EFAULT;
 	
 	glob_size = memparse(my_size, &my_size);
+
+	if (glob_size > max_size) {
+
+		pr_info("Size %s (%llu Bytes) is greater than the maximum allowed (~4G, %u Bytes), setting up PAGE_SIZE (4K, %lu Bytes).\n", my_size, glob_size, UINT_MAX, PAGE_SIZE);
+		
+		memset(my_size, 0, sizeof(hr_size));
+		strcpy(my_size, "4K");
+		glob_size = PAGE_SIZE;
+	}
 	
 	*off += len;
 	
@@ -240,22 +250,29 @@ static bool dvc_vs_array ( tjob * tinfo ) {
 	bool passed = true;
 
 	block = list_first_entry(&tinfo->data, tdata, elem);
-	
+
+	/* Like memset actually */
 	if (tinfo->isize > tinfo->osize) {
+		
 		dvc = block->output;
 		asize = tinfo->isize / sizeof(unsigned long long);
-	} else {
-		dvc = block->input; /* Won't be like this ...*/
-		asize = tinfo->osize / sizeof(unsigned long long);
-	}
-
-	list_for_each_entry(block, &tinfo->data, elem) {
 		
-		for (i = 0; i < asize && passed; i++)
-			passed = (tinfo->isize > tinfo->osize) ? block->input[i] == *dvc : block->output[i] == *dvc;
-
-		if (!passed)
-		    break;
+		list_for_each_entry(block, &tinfo->data, elem) {
+			
+			for (i = 0; i < asize && passed; i++)
+				passed = block->input[i] == *dvc;
+			
+			if (!passed)
+				break;
+		}
+		
+	} else {
+		
+		/* Very weak data integrity test, best we can do however ... */
+		
+		dvc = block->input; 
+		passed = list_entry(tinfo->data.prev, tdata, elem)->output[(tinfo->osize / sizeof(unsigned long long)) - 1] == *dvc;
+		
 	}
 	
 	return passed;
@@ -267,7 +284,7 @@ static bool array_vs_array ( tjob * tinfo ) {
 	tdata * block;
 	bool passed = true;
 	uint i, asize, j = 0;
-
+	
 	block = list_first_entry(&tinfo->data, tdata, elem);
 	
 	/* Array merge vs array split. */
@@ -296,16 +313,20 @@ static bool array_vs_array ( tjob * tinfo ) {
 
 static bool dvc_vs_dvc ( tjob * tinfo ) {
 
-	return true;
+	tdata * block = list_first_entry(&tinfo->data, tdata, elem);
+   
+	return *block->input == *block->output;
 	
 }
 
 static bool check_results ( tjob * tinfo ) {
 	
-	
 	switch ( tinfo->tnum ) {
 	case 0:
-		return dvc_vs_array(tinfo);
+		if (tinfo->subt <= 1)
+			return dvc_vs_array(tinfo);
+		else
+			return dvc_vs_dvc(tinfo);
 	case 3:
 		return array_vs_array(tinfo);		
 	default:
@@ -322,7 +343,7 @@ static bool terminate_node ( int node_id ) {
 	tdata * block, * tmp;
 	
 	if ( node && node->pending ) {
-
+		
 		ret = dmaengine_terminate_all ( node->chan );
 		
 		list_for_each_entry_safe (job, temp, &node->jobs, elem) {
@@ -435,9 +456,9 @@ static bool finish_transaction ( void * args ) {
 		check = check_results(tinfo);
 		
 	if (!check)
-		pr_err("Data check failed for test %s.\n", tinfo->tname);
+		pr_err("Data integriry check failed for test %s.\n", tinfo->tname);
 	else
-		pr_info("Data check success for test %s.\n", tinfo->tname);
+		pr_info("Data integriry check success for test %s.\n", tinfo->tname);
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
@@ -518,7 +539,6 @@ bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize) {
 			
 			if (dma_mapping_error(tinfo->parent->chan->device->dev, block->src_dma)) 
 				goto map_error;
-			
 		} 
 		
 		list_add_tail(&block->elem, &tinfo->data);
@@ -567,7 +587,8 @@ tjob * init_job (telem * node, uint test, int subtest) {
 	
 	node->batch_size += 1;
 	node->pending += 1;
-	
+
+	node->selectable = true;
 	spin_unlock(&node->lock);
 	
 	return job;
@@ -586,7 +607,7 @@ static int run_test (void * node_ptr) {
 	pr_info("VERBOSE: %u\n", verbose);
 
 	if (node->cmd <= ALL_TESTS) {
-
+		
 		if (!node->chan) {
 			
 			node->chan = dma_request_channel ( mask, NULL, NULL );
@@ -597,7 +618,6 @@ static int run_test (void * node_ptr) {
 				return 0;
 				
 			}
-			
 		}
 		
 	} else
@@ -773,11 +793,11 @@ static telem * get_min_node (void) {
 	
 	list_for_each_entry(node, &test_list, elem) {
 
+		spin_lock (&node->lock);
+
 		if (!node->selectable)
 			continue;
 		
-		spin_lock (&node->lock);
-
 		if (node->pending == 0) {
 
 			spin_unlock (&node->lock);
