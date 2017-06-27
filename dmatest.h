@@ -65,8 +65,6 @@ typedef struct test_elem {
 	
 	unsigned int batch_size;
 	unsigned int pending;
-
-	struct task_struct * thread;
 	
 } telem;
 
@@ -104,13 +102,15 @@ bool allocate_arrays ( tjob * tinfo, uint amount, uint isize, uint osize );
 bool submit_transaction ( tjob * tinfo );
 
 /* Slave_SG */
-bool do_slave_dev_to_mem_mem_to_dev ( telem * node );
+bool do_slave_dev_to_mem ( telem * node );
+bool do_slave_mem_to_dev ( telem * node );
 bool do_slave_dev_to_dev ( telem * node );
 bool do_dma_slave_sg ( telem * node );
 
 /* Interleaved */
 bool do_interleaved_mem_to_mem ( telem * node );
-bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node );
+bool do_interleaved_dev_to_mem ( telem * node );
+bool do_interleaved_mem_to_dev ( telem * node );
 bool do_interleaved_dev_to_dev ( telem * node );
 bool do_dma_ileaved ( telem * node );
 

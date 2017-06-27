@@ -14,10 +14,10 @@ sudo rmmod dmatest
 sudo rm -rf /dev/${device}
 
 #Debug para module_init.
-sudo dmesg --clear
 #echo 'Y' | sudo tee /sys/module/kernel/parameters/initcall_debug
 
 make clean && make
+sudo dmesg --clear
 sudo insmod dmatest.ko max_chann=${chann}
 dmesg
 

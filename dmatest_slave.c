@@ -2,20 +2,20 @@
 
 #define SLAVE_TEST 0
 
-bool do_slave_dev_to_mem_mem_to_dev ( telem * node ) {
+static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
     
 	unsigned long flags = 0;
 	tdata * block, * temp;
     struct sg_table sgt;
 	struct scatterlist * sgl;
 	int ret, j, i;
-	tjob * tinfo = init_job(node, SLAVE_TEST, 0); 
+	tjob * tinfo = init_job(node, SLAVE_TEST, dire ? 0 : 1); 
 
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE) : 1;
-	tinfo->isize = direction ? (mode_2d ? PAGE_SIZE : glob_size) : sizeof(unsigned long long);
-	tinfo->osize = direction ? sizeof(unsigned long long) : (mode_2d ? PAGE_SIZE : glob_size);
+	tinfo->isize = dire ? (mode_2d ? PAGE_SIZE : glob_size) : sizeof(unsigned long long);
+	tinfo->osize = dire ? sizeof(unsigned long long) : (mode_2d ? PAGE_SIZE : glob_size);
 	
-	tinfo->tname = direction ? "do_slave_dev_to_mem" : "do_slave_mem_to_dev";
+	tinfo->tname = dire ? "do_slave_dev_to_mem" : "do_slave_mem_to_dev";
 	
 	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
 	
@@ -23,7 +23,7 @@ bool do_slave_dev_to_mem_mem_to_dev ( telem * node ) {
 	    goto cfg_error;
 	else {
 		
-		if ( !allocate_arrays (tinfo, (tinfo->amount - 1), direction ? tinfo->isize : 0, direction ? 0 : tinfo->osize) )
+		if ( !allocate_arrays (tinfo, (tinfo->amount - 1), dire ? tinfo->isize : 0, dire ? 0 : tinfo->osize) )
 			goto cfg_error;	
 		else
 			pr_info("Succefully mapped dst and src dma addresses.\n");
@@ -31,9 +31,9 @@ bool do_slave_dev_to_mem_mem_to_dev ( telem * node ) {
 	
     temp = list_first_entry(&tinfo->data, tdata, elem);
 	
-	tinfo->config.direction = direction ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV;
+	tinfo->config.direction = dire ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV;
 
-	if (direction) {
+	if (dire) {
 
 		tinfo->config.src_addr_width = DMA_SLAVE_BUSWIDTH_8_BYTES;
 		tinfo->config.src_addr = temp->src_dma;
@@ -63,18 +63,18 @@ bool do_slave_dev_to_mem_mem_to_dev ( telem * node ) {
 		
 		while (sgl) {
 
-			if (!direction) {
+			if (!dire) {
 				
 				for (i = 0; i < (tinfo->osize / sizeof(unsigned long long)); i++)
 					block->output[i] = dvc_value + i + j;	
 			}
 			
-			sg_dma_address(sgl) = direction ? block->dst_dma : block->src_dma;
-			sg_dma_len(sgl) = direction ? tinfo->isize : tinfo->osize;
+			sg_dma_address(sgl) = dire ? block->dst_dma : block->src_dma;
+			sg_dma_len(sgl) = dire ? tinfo->isize : tinfo->osize;
 			
 			if (verbose >= 2)
 				pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, sg_dma_len(sgl),
-						(void *) temp != (void *) &tinfo->data ? direction ? (temp->dst_dma - (block->dst_dma + sg_dma_len(sgl))) : (temp->src_dma - (block->src_dma + sg_dma_len(sgl))) : 0);
+						(void *) temp != (void *) &tinfo->data ? dire ? (temp->dst_dma - (block->dst_dma + sg_dma_len(sgl))) : (temp->src_dma - (block->src_dma + sg_dma_len(sgl))) : 0);
 			
 		    sgl = sg_next(sgl);
 			block = temp;
@@ -85,16 +85,16 @@ bool do_slave_dev_to_mem_mem_to_dev ( telem * node ) {
 	    tinfo->tx_desc = dmaengine_prep_slave_sg(tinfo->parent->chan,
 												 sgt.sgl,
 												 tinfo->amount,
-												 direction ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
+												 dire ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
 												 flags);
 		
 		sg_free_table(&sgt);
 		
 	} else 
 		tinfo->tx_desc = dmaengine_prep_slave_single(tinfo->parent->chan,
-													 direction ? temp->dst_dma : temp->src_dma,
-													 direction ? tinfo->isize : tinfo->osize,
-													 direction ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
+													 dire ? temp->dst_dma : temp->src_dma,
+													 dire ? tinfo->isize : tinfo->osize,
+													 dire ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
 													 flags);
 	
 	if (!submit_transaction(tinfo))
@@ -121,6 +121,18 @@ bool do_slave_dev_to_mem_mem_to_dev ( telem * node ) {
 	return false;
 }
 
+bool do_slave_dev_to_mem ( telem * node ) {
+
+	return do_slave_dev_to_mem_mem_to_dev ( node, true );
+	
+}
+
+bool do_slave_mem_to_dev ( telem * node ) {
+
+	return do_slave_dev_to_mem_mem_to_dev ( node, false );
+
+}
+
 bool do_slave_dev_to_dev ( telem * node ) { 
 	
 	unsigned long flags = 0;
@@ -128,7 +140,7 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	struct sg_table sgt;
 	struct scatterlist * sgl;
 	int ret;
-	tjob * tinfo = init_job(node, SLAVE_TEST, 1); 
+	tjob * tinfo = init_job(node, SLAVE_TEST, 2); 
 	
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE) : 1;
 	tinfo->osize = sizeof(unsigned long long);
@@ -219,6 +231,7 @@ bool do_slave_dev_to_dev ( telem * node ) {
 bool do_dma_slave_sg ( telem * node ) { 
 	
 	return
-		do_slave_dev_to_mem_mem_to_dev ( node ) &&
+		do_slave_dev_to_mem ( node ) &&
+		do_slave_mem_to_dev ( node ) &&
 		do_slave_dev_to_dev ( node );
 }

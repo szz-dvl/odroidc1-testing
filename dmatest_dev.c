@@ -24,6 +24,7 @@ static bool issue_transaction ( tjob * tinfo );
 static bool terminate_node ( int node_id );
 static bool perform_jobs ( int node_id );
 static telem * get_node_by_id ( uint id );
+static void print_parameters (void);
 
 static struct file_operations fops = {
 	.write = dev_receive
@@ -51,7 +52,6 @@ static uint dma_capabilities [] = {
 static dma_cap_mask_t mask;
 
 LIST_HEAD(test_list);
-LIST_HEAD(jobs_list);
 
 static unsigned int major;
 
@@ -68,6 +68,8 @@ bool async_mode = true;
 bool mode_2d = false;
 bool direction = true;
 static bool batch_mode = false;
+
+
 
 char hr_size [32] = "4K";
 
@@ -174,6 +176,18 @@ static int size_open (struct inode * inode, struct file * filep) {
 	return 0;
 }
 
+static void print_parameters (void) {
+	
+	pr_info("DVC_VALUE: %u\n", dvc_value);
+	pr_info("MOVE_SIZE: %s (%llu Bytes)\n", hr_size, glob_size);
+	pr_info("ASYNC_MODE: %s\n", async_mode ? "true" : "false");
+	pr_info("2D_MODE: %s\n", mode_2d ? "true" : "false");
+	pr_info("BATCH_MODE: %s\n", batch_mode ? "true" : "false");
+	pr_info("DIRECTION: %s\n", direction ? "true" : "false");
+	pr_info("VERBOSE: %u\n\n", verbose);
+	
+}
+
 static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
 	
     unsigned int res;
@@ -182,13 +196,15 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	telem * node;
 	int args = -1, node_id = -1, cmd = -1;
 
+	print_parameters();
+	
 	strcpy(str, buff);
 	
 	while ((outter = strsep(&str, " "))) {
 		
 		test = "";
 		strcpy(test, outter);
-			
+		
 		while ((token = strsep(&test, ","))) {
 			
 			if (strcmp(token, "")) {
@@ -232,17 +248,21 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 				node->cmd = cmd;
 				node->args = args;
 				
-				pr_info("Running cmd %u (args: %d) on node %u, in_interrupt: %s\n", node->cmd, node->args, node->id, in_interrupt() ? "true" : "false");
+				pr_info("Running cmd %u (args: %d) on node %u.\n", node->cmd, node->args, node->id);
 				
-				node->thread = kthread_run ( run_test,
-											 node,
-											 "dmatest-worker" );	
+
+				kthread_run ( run_test,
+							  node,
+							  "dmatest-worker" );
+				
 			} else 	
 			    pr_err("Node %d not existent or temporaly busy.\n", node_id);
 		}
 		
 		cmd = args = node_id = -1;
 	}
+
+	*off += len;
 	
 	return len;
 }
@@ -329,7 +349,7 @@ static bool check_results ( tjob * tinfo ) {
 	switch ( tinfo->tnum ) {
 	case 0:
 		
-		if (tinfo->subt == 0)
+		if (tinfo->subt <= 1)
 			return dvc_vs_array(tinfo);
 		else
 			return dvc_vs_dvc(tinfo);
@@ -338,8 +358,9 @@ static bool check_results ( tjob * tinfo ) {
 		case 0:
 			return array_vs_array(tinfo);
 		case 1:
-			return dvc_vs_array(tinfo);
 		case 2:
+			return dvc_vs_array(tinfo);
+		case 3:
 			return dvc_vs_dvc(tinfo);
 		}	
 	default:
@@ -471,7 +492,7 @@ static bool finish_transaction ( void * args ) {
 	if (!check)
 		pr_err("Data integriry check failed for test %u,%d (%s).\n", tinfo->tnum, tinfo->subt, tinfo->tname);
 	else
-		pr_info("Data integriry check success for test %u,%d (%s).\n", tinfo->tnum, tinfo->subt, tinfo->tname);
+		pr_warn("Data integriry check success for test %u,%d (%s).\n", tinfo->tnum, tinfo->subt, tinfo->tname);
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
@@ -604,6 +625,8 @@ tjob * init_job (telem * node, uint test, int subtest) {
 	node->selectable = true;
 	spin_unlock(&node->lock);
 	
+	
+	
 	return job;
 }
 
@@ -612,18 +635,11 @@ static int run_test (void * node_ptr) {
 	telem * node = (telem *) node_ptr;
 	int ret = true;
 	
-	pr_info("DVC_VALUE: %u\n", dvc_value);
-	pr_info("MOVE_SIZE: %s (%llu Bytes)\n", hr_size, glob_size);
-	pr_info("ASYNC_MODE: %s\n", async_mode ? "true" : "false");
-	pr_info("2D_MODE: %s\n", mode_2d ? "true" : "false");
-	pr_info("BATCH_MODE: %s\n", batch_mode ? "true" : "false");
-	pr_info("VERBOSE: %u\n", verbose);
-
 	if (node->cmd <= ALL_TESTS) {
 		
 		if (!node->chan) {
 			
-			node->chan = dma_find_channel(DMA_INTERLEAVE);//dma_request_channel ( mask, NULL, NULL );
+			node->chan = dma_request_channel ( mask, NULL, NULL );//dma_find_channel(DMA_ASYNC_TX);//
 			
 			if (!node->chan) {
 				
@@ -635,8 +651,6 @@ static int run_test (void * node_ptr) {
 		
 	} else
 		node->selectable = true;
-
-	pr_info("Running thread, in_interrupt: %s\n", in_interrupt() ? "true" : "false");
 	
 	switch (node->cmd) 
 		{
@@ -645,9 +659,12 @@ static int run_test (void * node_ptr) {
 			{
 				switch(node->args) {
 				case 0:
-					ret = do_slave_dev_to_mem_mem_to_dev ( node );
+					ret = do_slave_dev_to_mem ( node );
 					break;;
 				case 1:
+					ret = do_slave_mem_to_dev ( node );
+					break;;
+				case 2:
 					ret = do_slave_dev_to_dev ( node );
 					break;;
 				default:
@@ -690,9 +707,12 @@ static int run_test (void * node_ptr) {
 					ret = do_interleaved_mem_to_mem ( node );
 					break;;
 				case 1:
-					ret = do_interleaved_dev_to_mem_mem_to_dev ( node );
+					ret = do_interleaved_dev_to_mem ( node );
 					break;;
 				case 2:
+					ret = do_interleaved_mem_to_dev ( node );
+					break;;
+				case 3:
 					ret = do_interleaved_dev_to_dev ( node );
 					break;;
 				default:
@@ -736,7 +756,7 @@ static int run_test (void * node_ptr) {
 				
 
 			/* Extra commands */
-
+			
 
 		case ISSUE_JOBS:
 			{
@@ -772,7 +792,7 @@ static int run_test (void * node_ptr) {
 	
 	if (!ret)
 		pr_err("Error running command %u.\n", node->cmd);
-	
+
     node->args = -1;
 	
 	return ret;
@@ -800,28 +820,45 @@ static telem * get_min_node (void) {
     telem * node, * ret = NULL;
 	uint minim = UINT_MAX;
 	
+	/*
+	  I'm facing a strange behaviour here. It'd be nice to hold the lock of each node in every iteration to check the availability 
+	  and load of the nodes, however, this function is called in "dev_receive" function which is in charge of running a thread for 
+	  each of the requested tests. 
+	  
+	  The problem comes when more than one test is demanded in a single call, the first test will be parsed from the command line and the 
+	  associated thread started, the while loop will then continue and parse the following test from the command line provided, to fetch 
+	  the node with minimum load this function will be called. If we hold the node lock for each iteration of the "list_for_each_entry" 
+	  under this lines preempt_count will be altered as usual. Lets remember that while this loop is running the thread associated with 
+	  the first test parsed is being started, hence, at some point "schedule()" will be called to schedule the function associated with 
+	  the thread. I think that due to the interaction of the locks in this function, it is, due to some preemption imbalace derivated from 
+	  the "spin_lock" and "spin_unlock" functions "in_atomic()" will evaluate to true while the "schedule()" call mentioned above happens, 
+	  hence "BUG: scheduling while atomic [...]" will be raised. 
+
+	  I think this is a bug not due to my code (if it is not please correct it ...) and I can't find a way of holding the locks in a "safe" 
+	  manner here, so I leave here the lines I would like to add commented and if somebody wants to give it a try just uncomment them and 
+	  enjoy the bug! ;P  
+
+	 */
+	
 	list_for_each_entry(node, &test_list, elem) {
-
-		spin_lock (&node->lock);
-
+		
+		//spin_lock (&node->lock);
 		if (!node->selectable)
 			continue;
 		
 		if (node->pending == 0) {
 
-			spin_unlock (&node->lock);
+			//spin_unlock (&node->lock);
 			return node;
-
+			
 		} else if (node->pending < minim) {
-			
-			ret = node;
-			minim = node->pending;
-			
-		}
-		
-		spin_unlock (&node->lock);
-	}
 
+			minim = node->pending;
+			//spin_unlock (&node->lock);
+			ret = node;
+		}
+	}
+	
 	return ret;
 }
 
@@ -848,9 +885,9 @@ static int __init dmatest_init(void)
 		
 	}
 
-	dmaengine_get();
+	//dmaengine_get();
 	dma_cap_zero(mask);
-		
+	
 	for (i = 0; i < 2; i++)
 		dma_cap_set(dma_capabilities[i], mask);
 	
@@ -909,7 +946,6 @@ static void __exit dmatest_exit(void)
 		kfree(node);
 	}
 
-	dmaengine_put();
 	unregister_chrdev ( major, "dmatest" );
 	debugfs_remove_recursive ( root );
 	
