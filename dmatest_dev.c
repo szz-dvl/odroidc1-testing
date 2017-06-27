@@ -66,6 +66,7 @@ unsigned long long glob_size = 4 * 1024;
 
 bool async_mode = true;
 bool mode_2d = false;
+bool merge = true;
 static bool batch_mode = false;
 
 char hr_size [32] = "4K";
@@ -105,6 +106,10 @@ static bool register_debugfs (void) {
 	    goto err_reg;
 
 	d = debugfs_create_bool("batch_mode", S_IRUGO | S_IWUSR, root, (u32 *)&batch_mode);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_bool("merge_vs_split", S_IRUGO | S_IWUSR, root, (u32 *)&merge);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -243,12 +248,12 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 }
 
 static bool dvc_vs_array ( tjob * tinfo ) {
-
+	
 	unsigned long long * dvc;
 	uint asize, i;
 	tdata * block;
 	bool passed = true;
-
+	
 	block = list_first_entry(&tinfo->data, tdata, elem);
 
 	/* Like memset actually */
@@ -323,14 +328,24 @@ static bool check_results ( tjob * tinfo ) {
 	
 	switch ( tinfo->tnum ) {
 	case 0:
+		
 		if (tinfo->subt <= 1)
 			return dvc_vs_array(tinfo);
 		else
 			return dvc_vs_dvc(tinfo);
 	case 3:
-		return array_vs_array(tinfo);		
+
+		switch(tinfo->subt) {
+		case 0:
+			return array_vs_array(tinfo);
+		case 1:
+		case 2:
+			return dvc_vs_array(tinfo);
+		case 3:
+			return dvc_vs_dvc(tinfo);
+		}	
 	default:
-		pr_info("Check results not implemented for test %u\n", tinfo->tnum);
+		pr_warn("Check results not implemented for test %u\n", tinfo->tnum);
 		return true;
 	}	
 }
@@ -456,9 +471,9 @@ static bool finish_transaction ( void * args ) {
 		check = check_results(tinfo);
 		
 	if (!check)
-		pr_err("Data integriry check failed for test %s.\n", tinfo->tname);
+		pr_err("Data integriry check failed for test %u,%d (%s).\n", tinfo->tnum, tinfo->subt, tinfo->tname);
 	else
-		pr_info("Data integriry check success for test %s.\n", tinfo->tname);
+		pr_info("Data integriry check success for test %u,%d (%s).\n", tinfo->tnum, tinfo->subt, tinfo->tname);
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
@@ -487,7 +502,7 @@ static bool finish_transaction ( void * args ) {
 	}
 	
 	if (to != DMA_ERROR && check)
-		pr_info("Moved %s (%llu Bytes) in %u nanoseconds.\n", hr_size, glob_size, jiffies_to_usecs(jiffies - tinfo->stime));
+		pr_info("Moved %s (%llu Bytes) in %u nanoseconds.\n", hr_size, tinfo->real_size ? tinfo->real_size : glob_size, jiffies_to_usecs(jiffies - tinfo->stime));
 
 	spin_lock(&tinfo->parent->lock);
 	

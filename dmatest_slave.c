@@ -1,6 +1,6 @@
 #include "dmatest.h"
 
-#define SLAVE_TEST     0
+#define SLAVE_TEST 0
 
 bool do_slave_dev_to_mem ( telem * node ) {
     
