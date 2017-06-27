@@ -6,11 +6,11 @@ size="4K"
 async="Y"
 mode2d="N"
 batch="N"
-merge="Y"
+direction="Y"
 def=""
 
 # read the options
-TEMP=`getopt -o n:s:a::b::v:2::m::d --long value:,size:,async::,batch::,verbose:,2dmode::,merge::,defaults -n 'sendpar' -- "$@"`
+TEMP=`getopt -o n:s:a::b::v:2::d::o --long value:,size:,async::,batch::,verbose:,2dmode::,direction::,original -n 'sendpar' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -40,21 +40,21 @@ while true ; do
 			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
 			shift 2;;
 
-		-m | --merge)
+		-d | --direction)
 
 			if [ ! -z "$2" ]; then
-				merge="$2"
+			    direction="$2"
 			else
-				old=$(sudo cat /sys/kernel/debug/dmatest/merge_vs_split)
+				old=$(sudo cat /sys/kernel/debug/dmatest/direction)
 				
 				if [ "$old" == "Y" ]; then
-					merge="N"
+					direction="N"
 				else
-				    merge="Y"
+				    direction="Y"
 				fi
 			fi
 			
-			echo -n "$merge" | sudo tee /sys/kernel/debug/dmatest/merge_vs_split &> /dev/null
+			echo -n "$direction" | sudo tee /sys/kernel/debug/dmatest/direction &> /dev/null
 			shift 2;;
 		
 		-b | --batch)
@@ -95,7 +95,7 @@ while true ; do
 			verbose="$2" ; shift 2 ;
 			echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null ;;
 
-		-d | --defaults)
+		-o | --original)
 			def="Y" ; shift ;;
 		
 		--) shift ; break ;;
@@ -111,7 +111,7 @@ if [ ! -z "$def" ]; then
 	echo -n "$mode2d" | sudo tee /sys/kernel/debug/dmatest/2d_mode &> /dev/null
 	echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null
 	echo -n "$batch" | sudo tee /sys/kernel/debug/dmatest/batch_mode &> /dev/null
-	echo -n "$merge" | sudo tee /sys/kernel/debug/dmatest/merge_vs_split &> /dev/null
+	echo -n "$direction" | sudo tee /sys/kernel/debug/dmatest/direction &> /dev/null
 	
 fi
 

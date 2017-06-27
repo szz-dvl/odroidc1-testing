@@ -66,7 +66,7 @@ unsigned long long glob_size = 4 * 1024;
 
 bool async_mode = true;
 bool mode_2d = false;
-bool merge = true;
+bool direction = true;
 static bool batch_mode = false;
 
 char hr_size [32] = "4K";
@@ -108,8 +108,8 @@ static bool register_debugfs (void) {
 	d = debugfs_create_bool("batch_mode", S_IRUGO | S_IWUSR, root, (u32 *)&batch_mode);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
-
-	d = debugfs_create_bool("merge_vs_split", S_IRUGO | S_IWUSR, root, (u32 *)&merge);
+	
+	d = debugfs_create_bool("direction", S_IRUGO | S_IWUSR, root, (u32 *)&direction);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -181,7 +181,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	uint i = 0;
 	telem * node;
 	int args = -1, node_id = -1, cmd = -1;
-	
+
 	strcpy(str, buff);
 	
 	while ((outter = strsep(&str, " "))) {
@@ -232,11 +232,11 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 				node->cmd = cmd;
 				node->args = args;
 				
-				pr_info("Running cmd %u (args: %d) on node %u\n", node->cmd, node->args, node->id);
+				pr_info("Running cmd %u (args: %d) on node %u, in_interrupt: %s\n", node->cmd, node->args, node->id, in_interrupt() ? "true" : "false");
 				
-				kthread_run ( run_test,
-							  node,
-							  "dmatest-worker" );	
+				node->thread = kthread_run ( run_test,
+											 node,
+											 "dmatest-worker" );	
 			} else 	
 			    pr_err("Node %d not existent or temporaly busy.\n", node_id);
 		}
@@ -298,7 +298,7 @@ static bool array_vs_array ( tjob * tinfo ) {
 		data_container = block->input;
 		asize = tinfo->osize / sizeof(unsigned long long);
 
-	} else { /* yet unimplemented */
+	} else {
 		
 		data_container = block->output;
 		asize = tinfo->isize / sizeof(unsigned long long);
@@ -329,19 +329,17 @@ static bool check_results ( tjob * tinfo ) {
 	switch ( tinfo->tnum ) {
 	case 0:
 		
-		if (tinfo->subt <= 1)
+		if (tinfo->subt == 0)
 			return dvc_vs_array(tinfo);
 		else
 			return dvc_vs_dvc(tinfo);
 	case 3:
-
 		switch(tinfo->subt) {
 		case 0:
 			return array_vs_array(tinfo);
 		case 1:
-		case 2:
 			return dvc_vs_array(tinfo);
-		case 3:
+		case 2:
 			return dvc_vs_dvc(tinfo);
 		}	
 	default:
@@ -625,7 +623,7 @@ static int run_test (void * node_ptr) {
 		
 		if (!node->chan) {
 			
-			node->chan = dma_request_channel ( mask, NULL, NULL );
+			node->chan = dma_find_channel(DMA_INTERLEAVE);//dma_request_channel ( mask, NULL, NULL );
 			
 			if (!node->chan) {
 				
@@ -637,6 +635,8 @@ static int run_test (void * node_ptr) {
 		
 	} else
 		node->selectable = true;
+
+	pr_info("Running thread, in_interrupt: %s\n", in_interrupt() ? "true" : "false");
 	
 	switch (node->cmd) 
 		{
@@ -645,12 +645,9 @@ static int run_test (void * node_ptr) {
 			{
 				switch(node->args) {
 				case 0:
-					ret = do_slave_dev_to_mem ( node );
+					ret = do_slave_dev_to_mem_mem_to_dev ( node );
 					break;;
 				case 1:
-					ret = do_slave_mem_to_dev ( node );
-					break;;
-				case 2:
 					ret = do_slave_dev_to_dev ( node );
 					break;;
 				default:
@@ -693,16 +690,13 @@ static int run_test (void * node_ptr) {
 					ret = do_interleaved_mem_to_mem ( node );
 					break;;
 				case 1:
-					ret = do_interleaved_dev_to_mem ( node );
+					ret = do_interleaved_dev_to_mem_mem_to_dev ( node );
 					break;;
 				case 2:
-					ret = do_interleaved_mem_to_dev ( node );
-					break;;
-				case 3:
 					ret = do_interleaved_dev_to_dev ( node );
 					break;;
 				default:
-					ret = do_dma_cyclic ( node );
+					ret = do_dma_ileaved ( node );
 				}
 					
 			}
@@ -853,7 +847,8 @@ static int __init dmatest_init(void)
 	    return -6;
 		
 	}
-	
+
+	dmaengine_get();
 	dma_cap_zero(mask);
 		
 	for (i = 0; i < 2; i++)
@@ -913,7 +908,8 @@ static void __exit dmatest_exit(void)
 		list_del(&node->elem);
 		kfree(node);
 	}
-	
+
+	dmaengine_put();
 	unregister_chrdev ( major, "dmatest" );
 	debugfs_remove_recursive ( root );
 	
