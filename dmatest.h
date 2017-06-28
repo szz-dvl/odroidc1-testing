@@ -22,9 +22,9 @@
 typedef enum test_type {
 
     DMA_SLAVE_SG,
-	DMA_SCAT_GATH,
 	DMA_CYCL,
 	DMA_ILEAVED,
+	DMA_SCAT_GATH,
 	DMA_IRQ,
 	DMA_MCPY,
 	DMA_MSET,

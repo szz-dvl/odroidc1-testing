@@ -141,11 +141,14 @@ static ssize_t size_receive ( struct file * file, const char *buff, size_t len, 
 	glob_size = memparse(my_size, &my_size);
 
 	if (glob_size > max_size) {
-
-		pr_info("Size %s (%llu Bytes) is greater than the maximum allowed (~4G, %u Bytes), setting up PAGE_SIZE (4K, %lu Bytes).\n", my_size, glob_size, UINT_MAX, PAGE_SIZE);
 		
-		memset(my_size, 0, sizeof(hr_size));
-		strcpy(my_size, "4K");
+		pr_warn("Size %s (%llu Bytes) is greater than the maximum allowed (~4G, %u Bytes), setting up PAGE_SIZE (4K, %lu Bytes).\n", hr_size, glob_size, UINT_MAX, PAGE_SIZE);
+
+		memset(hr_size, 0, sizeof(hr_size));
+		
+		hr_size[0] = '4';
+		hr_size[1] = 'K';
+		
 		glob_size = PAGE_SIZE;
 	}
 	
@@ -208,13 +211,7 @@ static uint jobs_for_cmd (command * cmd) {
 				}
 			}
 			break;;
-				
-		case DMA_SCAT_GATH:
-			{ 
-				ret = 1;
-			}
-			break;;
-				
+			   	
 		case DMA_CYCL:
 			{
 				switch(cmd->args) {
@@ -244,18 +241,9 @@ static uint jobs_for_cmd (command * cmd) {
 			}
 			break;;
 			
-		case DMA_IRQ:
-			{ 
-				ret = 1;
-			}
-			break;;
-			
-		case DMA_MCPY:
-			{ 
-				ret = 1;
-			}
-			break;;
-			
+		case DMA_SCAT_GATH:
+		case DMA_IRQ:			
+		case DMA_MCPY:		
 		case DMA_MSET:
 			{ 
 				ret = 1;
@@ -359,9 +347,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
     for (i = 0; i < max_chann; i++) {
 		
 		if (nodes[i]) 	
-			kthread_run ( run_test,
-						  nodes[i],
-						  "dmatest-worker" );
+			kthread_run ( run_test, nodes[i], "dmatest-worker" );
 		
 	}
 	
@@ -450,13 +436,13 @@ static bool dvc_vs_dvc ( tjob * tinfo ) {
 static bool check_results ( tjob * tinfo ) {
 	
 	switch ( tinfo->tnum ) {
-	case 0:
+	case DMA_SLAVE_SG:
 		
 		if (tinfo->subt <= 1)
 			return dvc_vs_array(tinfo);
 		else
 			return dvc_vs_dvc(tinfo);
-	case 3:
+	case DMA_ILEAVED:
 		switch(tinfo->subt) {
 		case 0:
 			return array_vs_array(tinfo);
@@ -523,9 +509,15 @@ static bool perform_jobs ( int node_id ) {
 	bool ret = true;
 
 	if (node) {
+
+		/* 
+		   Only the first call to "dma_async_issue_pending" will have effect here, 
+		   done this way to finish transactions not configured as asyncronous in the
+		   moment of its submission.
+		*/
 		
 		list_for_each_entry (job, &node->jobs, elem) 
-			ret = ret && issue_transaction ( job );
+			ret = ret && issue_transaction ( job ); 
 
 	} else
 		pr_err("Node %d not existent.\n", node_id);
@@ -774,12 +766,6 @@ static int run_test (void * node_ptr) {
 				}
 				break;;
 				
-			case DMA_SCAT_GATH:
-				{ 
-					ret = do_dma_scatter_gather ( node );
-				}
-				break;;
-				
 			case DMA_CYCL:
 				{
 					switch(cmd->args) {
@@ -820,6 +806,12 @@ static int run_test (void * node_ptr) {
 						ret = do_dma_ileaved ( node );
 					}
 					
+				}
+				break;;
+				
+			case DMA_SCAT_GATH:
+				{ 
+					ret = do_dma_scatter_gather ( node );
 				}
 				break;;
 				

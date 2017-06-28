@@ -5,9 +5,9 @@
 #Information about available commands and the accepted arguments for each of those can be found in the device source and header files, to note it down:
 
 # DMA_SLAVE_SG:     (command = 0), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
-# DMA_SCAT_GATH:    (command = 1), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
-# DMA_CYCL:         (command = 2), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
-# DMA_ILEAVED:      (command = 3), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
+# DMA_CYCL:         (command = 1), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
+# DMA_ILEAVED:      (command = 2), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
+# DMA_SCAT_GATH:    (command = 3), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
 # DMA_IRQ:          (command = 4), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
 # DMA_MCPY:         (command = 5), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.
 # DMA_MSET:         (command = 6), args will be interpreted as the subtest to be run, if a node_id is passed then the test will be run in requested node.

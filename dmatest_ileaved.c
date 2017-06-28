@@ -1,7 +1,5 @@
 #include "dmatest.h"
 
-#define ILEAVED_TEST 3
-
 static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
 {
     struct dma_interleaved_template *xt;
@@ -10,7 +8,7 @@ static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
     uint last_icg = 0;
 	int i, j = 0;
 	unsigned long array_size;
-	tjob * tinfo = init_job(node, ILEAVED_TEST, dire ? 1 : 2);
+	tjob * tinfo = init_job(node, DMA_ILEAVED, dire ? 1 : 2);
 	
 	array_size = mode_2d ? (PAGE_SIZE + (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, array_size) : 1;
@@ -116,7 +114,7 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
     uint last_icg = 0;
 	int i, j = 0;
 	unsigned long array_size;
-	tjob * tinfo = init_job(node, ILEAVED_TEST, 0);
+	tjob * tinfo = init_job(node, DMA_ILEAVED, 0);
 	
 	array_size = mode_2d ? (PAGE_SIZE + (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
 	tinfo->amount = DIV_ROUND_UP_ULL(glob_size, array_size);
@@ -232,7 +230,7 @@ bool do_interleaved_dev_to_dev ( telem * node )
     struct dma_interleaved_template *xt;
 	unsigned long flags = 0;
 	tdata * block;
-   	tjob * tinfo = init_job(node, ILEAVED_TEST, 3);
+   	tjob * tinfo = init_job(node, DMA_ILEAVED, 3);
 	
 	tinfo->amount = 1;
 
