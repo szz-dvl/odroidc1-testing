@@ -189,6 +189,93 @@ static void print_parameters (void) {
 	
 }
 
+static uint jobs_for_cmd (command * cmd) {
+
+	uint ret;
+	
+	switch (cmd->cmd) 
+		{
+			
+		case DMA_SLAVE_SG:
+			{
+				switch(cmd->args) {
+				case 0:
+				case 1:
+				case 2:
+					ret = 1;
+				default:
+					ret = 3;
+				}
+			}
+			break;;
+				
+		case DMA_SCAT_GATH:
+			{ 
+				ret = 1;
+			}
+			break;;
+				
+		case DMA_CYCL:
+			{
+				switch(cmd->args) {
+				case 0:
+				case 1:
+				case 2:
+				case 3:
+					ret = 1;
+				default:
+					ret = 4;
+				}
+			}
+			break;;
+			
+		case DMA_ILEAVED:
+			{
+				switch(cmd->args) {
+				case 0:
+				case 1:
+				case 2:
+				case 3:
+					ret = 1;
+				default:
+					ret = 4;
+				}
+					
+			}
+			break;;
+			
+		case DMA_IRQ:
+			{ 
+				ret = 1;
+			}
+			break;;
+			
+		case DMA_MCPY:
+			{ 
+				ret = 1;
+			}
+			break;;
+			
+		case DMA_MSET:
+			{ 
+				ret = 1;
+			}
+			break;;
+				
+		case ALL_TESTS:
+			{
+				
+				ret = 15;	
+			}
+			break;;
+			
+		default: 
+			ret = 0;
+		};
+
+	return ret;
+} 
+
 static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
 	
     unsigned int res;
@@ -257,7 +344,9 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 			if (node) {
 				
 				list_add_tail(&cmd->elem, &node->cmd_list);
-				node->pending ++;
+				spin_lock (&node->lock);
+				node->pending += jobs_for_cmd(cmd);
+				spin_unlock (&node->lock);
 				nodes[node->id] = node;
 				
 			} else 	
@@ -289,7 +378,7 @@ static bool dvc_vs_array ( tjob * tinfo ) {
 	bool passed = true;
 	
 	block = list_first_entry(&tinfo->data, tdata, elem);
-
+	
 	/* Like memset actually */
 	if (tinfo->isize > tinfo->osize) {
 		
@@ -412,8 +501,11 @@ static bool terminate_node ( int node_id ) {
 			list_del(&job->elem);
 			kfree(job);
 		}
-		
+
+		spin_lock (&node->lock);
 		node->pending = 0;
+		spin_unlock (&node->lock);
+		
 		dma_release_channel ( node->chan );
 		node->chan = NULL;
 
@@ -476,18 +568,9 @@ bool submit_transaction ( tjob * tinfo ) {
 
 	tinfo->async = async_mode;
 	
-	if (!batch_mode) {
-
-		spin_lock (&tinfo->parent->lock);
-		
-		if (! --tinfo->parent->batch_size) {
-			spin_unlock (&tinfo->parent->lock);
-			return issue_transaction ( tinfo );
-			
-		} else
-			spin_unlock (&tinfo->parent->lock);
-	}
-	
+	if (!batch_mode)
+		return issue_transaction ( tinfo );
+    
 	return true;
 }
 
@@ -542,10 +625,10 @@ static bool finish_transaction ( void * args ) {
 	spin_lock(&tinfo->parent->lock);
 	
 	if (! --tinfo->parent->pending) {
-		
+
+		pr_info("%u >> Releasing dma channel %s.\n", tinfo->parent->id, dma_chan_name(tinfo->parent->chan));
 		dma_release_channel ( tinfo->parent->chan );
 		tinfo->parent->chan = NULL;
-		
 	}
 	
 	list_del(&tinfo->elem);
@@ -635,8 +718,6 @@ tjob * init_job (telem * node, uint test, int subtest) {
 	
 	list_add_tail(&job->elem, &node->jobs);
 	
-	node->batch_size ++;
-	
 	spin_unlock(&node->lock);
 	
 	return job;
@@ -663,12 +744,14 @@ static int run_test (void * node_ptr) {
 					pr_err("%u >> No dma channel available.\n", node->id);
 					return 0;
 					
+
 				} else
 					pr_info("%u >> Reserved channel %s.\n", node->id, dma_chan_name(node->chan));
+
 			} else
 				pr_info("%u >> Performing transaction on channel %s.\n", node->id, dma_chan_name(node->chan));
-		} else
-			node->pending --;
+
+		} 
 		
 		switch (cmd->cmd) 
 			{
@@ -838,7 +921,7 @@ static telem * get_min_node (void) {
 	uint minim = UINT_MAX;
 	
 	list_for_each_entry(node, &node_list, elem) {
-			
+		
 		if (node->pending == 0) {
 			
 			return node;
@@ -876,7 +959,6 @@ static int __init dmatest_init(void)
 		
 	}
 	
-	//dmaengine_get();
 	dma_cap_zero(mask);
 	
 	for (i = 0; i < 2; i++)
@@ -885,7 +967,7 @@ static int __init dmatest_init(void)
 	for (i = 0; i < max_chann; i++) {
 		
 		telem * node = (telem *) kzalloc(sizeof(telem), GFP_KERNEL);
-
+		
 		if (node) {
 
 			node->id = i;
@@ -894,7 +976,6 @@ static int __init dmatest_init(void)
 			INIT_LIST_HEAD(&node->jobs);
 			INIT_LIST_HEAD(&node->cmd_list);
 			node->pending = 0;
-			node->batch_size = 0;
 
 			list_add_tail(&node->elem, &node_list);
 			

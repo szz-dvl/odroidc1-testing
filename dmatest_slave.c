@@ -217,13 +217,17 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	
 	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
-	block = list_first_entry(&tinfo->data, tdata, elem);
+	block = list_first_entry_or_null(&tinfo->data, tdata, elem);
+
+	if (block) {
+
+		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 	
-	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
-	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
-	
-	list_del(&block->elem);
-	kfree(block);
+		list_del(&block->elem);
+		kfree(block);
+		
+	}
 	
 	return false;
 }

@@ -70,7 +70,6 @@ typedef struct test_elem {
 
 	struct list_head cmd_list;
 	
-	unsigned int batch_size;
 	unsigned int pending;
 	
 } telem;

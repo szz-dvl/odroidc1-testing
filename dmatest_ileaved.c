@@ -229,6 +229,74 @@ bool do_interleaved_mem_to_dev ( telem * node ) {
 
 bool do_interleaved_dev_to_dev ( telem * node )
 {
+    struct dma_interleaved_template *xt;
+	unsigned long flags = 0;
+	tdata * block;
+   	tjob * tinfo = init_job(node, ILEAVED_TEST, 3);
+	
+	tinfo->amount = 1;
+
+	tinfo->tname = __func__;
+	
+	pr_info("%u >> Entering %s, size: %s, amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
+	
+	xt = kzalloc(sizeof(struct dma_interleaved_template) +
+				 tinfo->amount * sizeof(struct data_chunk), GFP_KERNEL);
+	
+	if (!xt) 
+		return false;
+	
+	tinfo->isize = sizeof(unsigned long long);
+	tinfo->osize = sizeof(unsigned long long);
+	
+	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
+		goto cfg_error;
+	else 
+		pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
+			
+	block = list_first_entry(&tinfo->data, tdata, elem);
+	
+	xt->src_start = block->src_dma;
+	xt->dst_start = block->dst_dma;
+	xt->dir = DMA_DEV_TO_DEV;
+	xt->src_inc = false;
+	xt->dst_inc = false;
+	xt->src_sgl = false;
+	xt->dst_sgl = false;
+	xt->numf = 1; /* Actually ignored in the driver, more info: "drivers/dma/s805_dmaengine.c" */ 
+	xt->frame_size = tinfo->amount;
+
+	*block->output = dvc_value;
+
+	xt->sgl[0].size = ALIGN(glob_size, sizeof(unsigned long long));
+	xt->sgl[0].icg = 0; /* Ignored, 1D always for DMA_DEV_TO_DEV */
+	
+    tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->parent->chan, xt, flags);
+	
+	if (!submit_transaction(tinfo))
+		goto cfg_error;
+	
+	kfree(xt);
+	
+	return true;
+	
+ cfg_error:
+	
+	pr_err("%u >> Configuration error.", tinfo->parent->id);
+	
+	block = list_first_entry_or_null(&tinfo->data, tdata, elem);
+	
+	if (block) {
+		
+		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+		
+		list_del(&block->elem);
+		kfree(block);
+	}
+	
+	kfree(xt);
+	
 	return false;
 };
 

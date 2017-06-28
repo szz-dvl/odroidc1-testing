@@ -1,7 +1,7 @@
 #!/bin/bash
 
-implemented="0,0 0,1 0,2 3,0 3,1 3,2"
-size="8K"
+implemented="0,0 0,1 0,2 3,0 3,1 3,2 3,3 0 3"
+size="32K"
 dire="Y"
 max_chann=$(( $(sudo cat /sys/kernel/debug/dmatest/max_chann) - 1 ))
 
