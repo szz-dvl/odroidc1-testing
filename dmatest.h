@@ -34,6 +34,15 @@ typedef enum test_type {
 
 } ttype;
 
+typedef struct cmd_grabber {
+	
+	struct list_head elem;
+	
+	uint cmd;
+	int args;
+	
+} command;
+
 typedef struct test_data {
 	
 	struct list_head elem;
@@ -53,15 +62,13 @@ typedef struct test_elem {
 	uint id;
 
 	spinlock_t lock;
-	bool selectable;
 	
 	struct list_head jobs;
 	struct list_head elem;
 	
 	struct dma_chan * chan;
 
-	unsigned int cmd;
-	int args;
+	struct list_head cmd_list;
 	
 	unsigned int batch_size;
 	unsigned int pending;

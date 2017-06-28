@@ -20,7 +20,7 @@ static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
 	if (mode_2d)
 		tinfo->real_size = tinfo->amount * array_size;
 	
-	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
+	pr_info("%u >> Entering %s, size: %s, amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
 	
 	xt = kzalloc(sizeof(struct dma_interleaved_template) +
 				 tinfo->amount * sizeof(struct data_chunk), GFP_KERNEL);
@@ -38,7 +38,7 @@ static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
 		if ( !allocate_arrays (tinfo, (tinfo->amount - 1), dire ? tinfo->isize : 0, dire ? 0 : tinfo->osize) ) 
 			goto cfg_error;
 		else
-			pr_info("Succefully mapped dst and src dma addresses.\n");
+			pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	}
 	
 	temp = list_first_entry(&tinfo->data, tdata, elem);
@@ -72,13 +72,12 @@ static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
 		    last_icg;
 
 		if (verbose >= 2)
-			pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
+			pr_info("%u >> Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", tinfo->parent->id, j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
 		
 		last_icg = xt->sgl[j].icg;
 		j++;
 	}
 	
-	pr_info("Config ready!\n");
     tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->parent->chan, xt, flags);
 
 	if (!submit_transaction(tinfo))
@@ -90,7 +89,7 @@ static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
 	
  cfg_error:
 	
-	pr_err("Configuration error.");
+	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
 	list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 
@@ -127,7 +126,7 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 	if (mode_2d)
 		tinfo->real_size = tinfo->amount * array_size;
 	
-	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
+	pr_info("%u >> Entering %s, size: %s, amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
 	
 	xt = kzalloc(sizeof(struct dma_interleaved_template) +
 				 tinfo->amount * sizeof(struct data_chunk), GFP_KERNEL);
@@ -145,7 +144,7 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 		if ( !allocate_arrays (tinfo, (tinfo->amount - 1), direction ? 0 : tinfo->isize, direction ? tinfo->osize : 0) ) 
 			goto cfg_error;
 		else
-			pr_info("Succefully mapped dst and src dma addresses.\n");
+			pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	}
 
 	temp = list_first_entry(&tinfo->data, tdata, elem);
@@ -182,13 +181,12 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 		    last_icg;
 
 		if (verbose >= 2)
-			pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
+			pr_info("%u >> Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", tinfo->parent->id, j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
 		
 		last_icg = xt->sgl[j].icg;
 		j++;
 	}
 	
-	pr_info("Config ready!\n");
     tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->parent->chan, xt, flags);
 
 	if (!submit_transaction(tinfo))
@@ -199,7 +197,7 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 	return true;
 	
  cfg_error:
-	pr_err("Configuration error.");
+	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
 	list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 		

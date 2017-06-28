@@ -24,7 +24,7 @@ static bool issue_transaction ( tjob * tinfo );
 static bool terminate_node ( int node_id );
 static bool perform_jobs ( int node_id );
 static telem * get_node_by_id ( uint id );
-static void print_parameters (void);
+static void print_parameters ( void );
 
 static struct file_operations fops = {
 	.write = dev_receive
@@ -51,12 +51,13 @@ static uint dma_capabilities [] = {
 
 static dma_cap_mask_t mask;
 
-LIST_HEAD(test_list);
+LIST_HEAD(node_list);
 
 static unsigned int major;
 
 struct dma_attrs dma_attr;
 static unsigned long long max_size = UINT_MAX;
+char hr_size [32] = "4K";
 
 /* Default value for parameters */
 
@@ -69,10 +70,6 @@ bool mode_2d = false;
 bool direction = true;
 static bool batch_mode = false;
 
-
-
-char hr_size [32] = "4K";
-
 struct dentry *root;
 
 static bool register_debugfs (void) {
@@ -84,6 +81,10 @@ static bool register_debugfs (void) {
 		goto err_reg;
 	
 	d = debugfs_create_u32("major", S_IRUGO, root, (u32 *)&major);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("max_chann", S_IRUGO, root, (u32 *)&max_chann);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -194,11 +195,18 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	char * outter, * token, * test = "", * str = "";
 	uint i = 0;
 	telem * node;
-	int args = -1, node_id = -1, cmd = -1;
+	int args = -1, node_id = -1, com = -1; 
+    command * cmd;
+    telem * nodes [max_chann];
 
+	for (i = 0; i < max_chann; i++)
+		nodes[i] = NULL;
+		
 	print_parameters();
 	
 	strcpy(str, buff);
+
+	i = 0;
 	
 	while ((outter = strsep(&str, " "))) {
 		
@@ -214,7 +222,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 					switch (i) {
 						
 					case 0:
-						cmd = res;
+					    com = res;
 						break;;
 					case 1:
 						args = (int) res;
@@ -236,32 +244,38 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 		i = 0;
 
 		if (cmd >= 0) {
-			
+
+		    cmd = (command *) kzalloc (sizeof(cmd), GFP_KERNEL | __GFP_REPEAT);
+		    cmd->cmd = com;
+			cmd->args = args;
+				
 			if (node_id < 0)
 				node = get_min_node(); /* Must allways return a node. */
 			else
 				node = get_node_by_id(node_id);
-
+			
 			if (node) {
-
-			    node->selectable = false;
-				node->cmd = cmd;
-				node->args = args;
 				
-				pr_info("Running cmd %u (args: %d) on node %u.\n", node->cmd, node->args, node->id);
-				
-
-				kthread_run ( run_test,
-							  node,
-							  "dmatest-worker" );
+				list_add_tail(&cmd->elem, &node->cmd_list);
+				node->pending ++;
+				nodes[node->id] = node;
 				
 			} else 	
-			    pr_err("Node %d not existent or temporaly busy.\n", node_id);
+			    pr_err("Node %d not existent.\n", node_id);
 		}
 		
-		cmd = args = node_id = -1;
+	    com = args = node_id = -1;
 	}
-
+	
+    for (i = 0; i < max_chann; i++) {
+		
+		if (nodes[i]) 	
+			kthread_run ( run_test,
+						  nodes[i],
+						  "dmatest-worker" );
+		
+	}
+	
 	*off += len;
 	
 	return len;
@@ -364,7 +378,7 @@ static bool check_results ( tjob * tinfo ) {
 			return dvc_vs_dvc(tinfo);
 		}	
 	default:
-		pr_warn("Check results not implemented for test %u\n", tinfo->tnum);
+		pr_warn("%u >> Check results not implemented for test %u\n", tinfo->parent->id, tinfo->tnum);
 		return true;
 	}	
 }
@@ -404,7 +418,7 @@ static bool terminate_node ( int node_id ) {
 		node->chan = NULL;
 
 	} else
-		pr_err("Node %d not existent or temporaly busy.\n", node_id);
+		pr_err("Node %d not existent\n", node_id);
 	
 	return ret == DMA_SUCCESS; /* Must always be true */
 }
@@ -422,7 +436,7 @@ static bool perform_jobs ( int node_id ) {
 			ret = ret && issue_transaction ( job );
 
 	} else
-		pr_err("Node %d not existent or temporaly busy.\n", node_id);
+		pr_err("Node %d not existent.\n", node_id);
 	
 	return ret;
 }
@@ -431,6 +445,8 @@ static bool issue_transaction ( tjob * tinfo ) {
 
 	tinfo->stime = jiffies;
 	dma_async_issue_pending(tinfo->parent->chan);
+
+	pr_info("%u >> Issued transaction (%d)\n", tinfo->parent->id, tinfo->tx_cookie);
 	
 	if (!tinfo->async) 	
 		return finish_transaction ( tinfo );
@@ -442,11 +458,11 @@ bool submit_transaction ( tjob * tinfo ) {
 
 	if(!tinfo->tx_desc) {
 		
-		pr_err("Unable to get descriptor\n");
+		pr_err("%u >> Unable to get descriptor\n", tinfo->parent->id);
 		return false;
 		
 	} else
-		pr_info("Got descriptor: %pB\n", tinfo->tx_desc);
+		pr_info("%u >> Got descriptor (%pB)\n", tinfo->parent->id, tinfo->tx_desc);
 	
     tinfo->tx_desc->callback = async_mode ? (void *) &finish_transaction : NULL;
 	tinfo->tx_desc->callback_param = async_mode ? (void *) tinfo : NULL;
@@ -454,9 +470,9 @@ bool submit_transaction ( tjob * tinfo ) {
 	tinfo->tx_cookie = dmaengine_submit(tinfo->tx_desc);
 	
 	if(tinfo->tx_cookie < 0) 
-		pr_err("Error submitting transaction: %d\n", tinfo->tx_cookie);
+		pr_err("%u >> Error submitting transaction (%d)\n", tinfo->parent->id, tinfo->tx_cookie);
 	else
-		pr_info("Cookie submitted: %d\n", tinfo->tx_cookie);
+		pr_info("%u >> Cookie submitted (%d)\n", tinfo->parent->id, tinfo->tx_cookie);
 
 	tinfo->async = async_mode;
 	
@@ -490,9 +506,9 @@ static bool finish_transaction ( void * args ) {
 		check = check_results(tinfo);
 		
 	if (!check)
-		pr_err("Data integriry check failed for test %u,%d (%s).\n", tinfo->tnum, tinfo->subt, tinfo->tname);
+		pr_err("%u >> Data integriry check failed for test %u,%d (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->subt, tinfo->tname);
 	else
-		pr_warn("Data integriry check success for test %u,%d (%s).\n", tinfo->tnum, tinfo->subt, tinfo->tname);
+		pr_warn("%u >> Data integriry check success for test %u,%d (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->subt, tinfo->tname);
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
@@ -500,10 +516,10 @@ static bool finish_transaction ( void * args ) {
 			
 			if (block->dst_dma && verbose >= 3) {
 				
-				pr_info("Block %u [%p][0x%08x]: \n", j, block->input, block->dst_dma);
+				pr_info("%u >> Block %u [%p][0x%08x]: \n", tinfo->parent->id, j, block->input, block->dst_dma);
 				
 				for (i = 0; i < (tinfo->isize / sizeof(unsigned long long)); i++)
-					pr_info("%03d: %03llu, 0x%08llx\n", i, block->input[i], block->input[i]);
+					pr_info("%u >> %03d: %03llu, 0x%08llx\n", tinfo->parent->id, i, block->input[i], block->input[i]);
 				
 			}
 		}
@@ -521,7 +537,7 @@ static bool finish_transaction ( void * args ) {
 	}
 	
 	if (to != DMA_ERROR && check)
-		pr_info("Moved %s (%llu Bytes) in %u nanoseconds.\n", hr_size, tinfo->real_size ? tinfo->real_size : glob_size, jiffies_to_usecs(jiffies - tinfo->stime));
+		pr_info("%u >> Moved %s (%llu Bytes) in %u nanoseconds.\n", tinfo->parent->id, hr_size, tinfo->real_size ? tinfo->real_size : glob_size, jiffies_to_usecs(jiffies - tinfo->stime));
 
 	spin_lock(&tinfo->parent->lock);
 	
@@ -581,7 +597,7 @@ bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize) {
 	return true;
 	
  map_error:
-    pr_err("Error mapping DMA addresses.");
+    pr_err("%u >> Error mapping DMA addresses.", tinfo->parent->id);
 	
     list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 		
@@ -604,11 +620,11 @@ tjob * init_job (telem * node, uint test, int subtest) {
 	
 	if (!job) {
 		
-		pr_err("Error allocating new job.\n");
+		pr_err("%u >> Error allocating new job.\n", node->id);
 		return NULL;
 		
 	} 
-			
+	
 	INIT_LIST_HEAD(&job->data);
 	
 	job->parent = node;
@@ -619,13 +635,9 @@ tjob * init_job (telem * node, uint test, int subtest) {
 	
 	list_add_tail(&job->elem, &node->jobs);
 	
-	node->batch_size += 1;
-	node->pending += 1;
-
-	node->selectable = true;
+	node->batch_size ++;
+	
 	spin_unlock(&node->lock);
-	
-	
 	
 	return job;
 }
@@ -633,179 +645,184 @@ tjob * init_job (telem * node, uint test, int subtest) {
 static int run_test (void * node_ptr) {
 	
 	telem * node = (telem *) node_ptr;
+    command * cmd, * temp;
 	int ret = true;
 	
-	if (node->cmd <= ALL_TESTS) {
+	list_for_each_entry_safe (cmd, temp, &node->cmd_list, elem) {
+
+		pr_info("%u >> Running command %u (args: %d).\n", node->id, cmd->cmd, cmd->args);
 		
-		if (!node->chan) {
-			
-			node->chan = dma_request_channel ( mask, NULL, NULL );//dma_find_channel(DMA_ASYNC_TX);//
-			
+		if (cmd->cmd <= ALL_TESTS) {
+		
 			if (!node->chan) {
 				
-				pr_err("No channel available.\n");
-				return 0;
+				node->chan = dma_request_channel ( mask, NULL, NULL );
 				
-			}
-		}
-		
-	} else
-		node->selectable = true;
-	
-	switch (node->cmd) 
-		{
-			
-		case DMA_SLAVE_SG:
-			{
-				switch(node->args) {
-				case 0:
-					ret = do_slave_dev_to_mem ( node );
-					break;;
-				case 1:
-					ret = do_slave_mem_to_dev ( node );
-					break;;
-				case 2:
-					ret = do_slave_dev_to_dev ( node );
-					break;;
-				default:
-					ret = do_dma_slave_sg ( node );
-				}
-			}
-			break;;
-				
-		case DMA_SCAT_GATH:
-			{ 
-				ret = do_dma_scatter_gather ( node );
-			}
-			break;;
-				
-		case DMA_CYCL:
-			{
-				switch(node->args) {
-				case 0:
-					ret = do_cyclic_dev_to_mem ( node );
-					break;;
-				case 1:
-					ret = do_cyclic_dev_to_dev ( node );
-					break;;
-				case 2:
-					ret = do_cyclic_mem_to_dev ( node );
-					break;;
-				case 3:
-					ret = do_cyclic_mem_to_mem ( node );
-					break;;
-				default:
-					ret = do_dma_cyclic ( node );
-				}
-			}
-			break;;
-
-		case DMA_ILEAVED:
-			{
-				switch(node->args) {
-				case 0:
-					ret = do_interleaved_mem_to_mem ( node );
-					break;;
-				case 1:
-					ret = do_interleaved_dev_to_mem ( node );
-					break;;
-				case 2:
-					ret = do_interleaved_mem_to_dev ( node );
-					break;;
-				case 3:
-					ret = do_interleaved_dev_to_dev ( node );
-					break;;
-				default:
-					ret = do_dma_ileaved ( node );
-				}
+				if (!node->chan) {
 					
-			}
-			break;;
-				
-		case DMA_IRQ:
-			{ 
-				ret = do_dma_interrupt ( node );
-			}
-			break;;
-
-		case DMA_MCPY:
-			{ 
-				ret = do_dma_memcpy ( node );
-			}
-			break;;
-
-		case DMA_MSET:
-			{ 
-				ret = do_dma_memset ( node );
-			}
-			break;;
-				
-		case ALL_TESTS:
-			{
-				
-				ret =
-					do_dma_slave_sg ( node ) &&
-					do_dma_cyclic ( node ) &&
-					do_dma_interrupt ( node ) &&
-					do_dma_ileaved ( node ) &&
-					do_dma_scatter_gather ( node ) &&
-					do_dma_memcpy ( node ) &&
-					do_dma_memset ( node );	
-			}
-			break;;
-				
-
-			/* Extra commands */
-			
-
-		case ISSUE_JOBS:
-			{
-				int i;
-				
-				if (node->args < 0) {
-					for (i = 0; i < max_chann + 2; i++)
-						ret = ret && perform_jobs ( i );
+					pr_err("%u >> No dma channel available.\n", node->id);
+					return 0;
+					
 				} else
-					ret = perform_jobs ( node->args );
-			}
-			break;;
-			
-		case TERMINATE_NODE:
+					pr_info("%u >> Reserved channel %s.\n", node->id, dma_chan_name(node->chan));
+			} else
+				pr_info("%u >> Performing transaction on channel %s.\n", node->id, dma_chan_name(node->chan));
+		} else
+			node->pending --;
+		
+		switch (cmd->cmd) 
 			{
-				int i;
+			
+			case DMA_SLAVE_SG:
+				{
+					switch(cmd->args) {
+					case 0:
+						ret = do_slave_dev_to_mem ( node );
+						break;;
+					case 1:
+						ret = do_slave_mem_to_dev ( node );
+						break;;
+					case 2:
+						ret = do_slave_dev_to_dev ( node );
+						break;;
+					default:
+						ret = do_dma_slave_sg ( node );
+					}
+				}
+				break;;
 				
-				if (node->args < 0) {
-					for (i = 0; i < max_chann + 2; i++)
-						ret = ret && terminate_node ( i );
-				} else
-					ret = terminate_node ( node->args );
+			case DMA_SCAT_GATH:
+				{ 
+					ret = do_dma_scatter_gather ( node );
+				}
+				break;;
 				
-			}
-			break;;
-			
-		default: 
-			
-			pr_err("Invalid command requested: %u.\n", node->cmd);
-			ret = false;
-			
-		};
-	
-	if (!ret)
-		pr_err("Error running command %u.\n", node->cmd);
+			case DMA_CYCL:
+				{
+					switch(cmd->args) {
+					case 0:
+						ret = do_cyclic_dev_to_mem ( node );
+						break;;
+					case 1:
+						ret = do_cyclic_dev_to_dev ( node );
+						break;;
+					case 2:
+						ret = do_cyclic_mem_to_dev ( node );
+						break;;
+					case 3:
+						ret = do_cyclic_mem_to_mem ( node );
+						break;;
+					default:
+						ret = do_dma_cyclic ( node );
+					}
+				}
+				break;;
 
-    node->args = -1;
+			case DMA_ILEAVED:
+				{
+					switch(cmd->args) {
+					case 0:
+						ret = do_interleaved_mem_to_mem ( node );
+						break;;
+					case 1:
+						ret = do_interleaved_dev_to_mem ( node );
+						break;;
+					case 2:
+						ret = do_interleaved_mem_to_dev ( node );
+						break;;
+					case 3:
+						ret = do_interleaved_dev_to_dev ( node );
+						break;;
+					default:
+						ret = do_dma_ileaved ( node );
+					}
+					
+				}
+				break;;
+				
+			case DMA_IRQ:
+				{ 
+					ret = do_dma_interrupt ( node );
+				}
+				break;;
+
+			case DMA_MCPY:
+				{ 
+					ret = do_dma_memcpy ( node );
+				}
+				break;;
+
+			case DMA_MSET:
+				{ 
+					ret = do_dma_memset ( node );
+				}
+				break;;
+				
+			case ALL_TESTS:
+				{
+				
+					ret =
+						do_dma_slave_sg ( node ) &&
+						do_dma_cyclic ( node ) &&
+						do_dma_interrupt ( node ) &&
+						do_dma_ileaved ( node ) &&
+						do_dma_scatter_gather ( node ) &&
+						do_dma_memcpy ( node ) &&
+						do_dma_memset ( node );	
+				}
+				break;;
+				
+
+				/* Extra cmds */
+			
+
+			case ISSUE_JOBS:
+				{
+					int i;
+				
+					if (cmd->args < 0) {
+						for (i = 0; i < max_chann; i++)
+							ret = ret && perform_jobs ( i );
+					} else
+						ret = perform_jobs ( cmd->args );
+				}
+				break;;
+			
+			case TERMINATE_NODE:
+				{
+					int i;
+				
+					if (cmd->args < 0) {
+						for (i = 0; i < max_chann; i++)
+							ret = ret && terminate_node ( i );
+					} else
+						ret = terminate_node ( cmd->args );
+				
+				}
+				break;;
+			
+			default: 
+			
+				pr_err("%u >> Invalid command requested: %u.\n", node->id, cmd->cmd);
+				ret = false;
+			
+			};
 	
-	return ret;
+		if (!ret)
+			pr_err("%u >> Error running command (%u).\n", node->id, cmd->cmd);
+
+		list_del(&cmd->elem);
+		kfree(cmd);
+	}
+	
+	return 1;
 }
 
 static telem * get_node_by_id ( uint id ) {
 
     telem * node;
 	
-	list_for_each_entry(node, &test_list, elem) {
-
-		if (!node->selectable)
-			continue;
+	list_for_each_entry(node, &node_list, elem) {
 		
 		if (node->id == id)  
 			return node;
@@ -820,41 +837,15 @@ static telem * get_min_node (void) {
     telem * node, * ret = NULL;
 	uint minim = UINT_MAX;
 	
-	/*
-	  I'm facing a strange behaviour here. It'd be nice to hold the lock of each node in every iteration to check the availability 
-	  and load of the nodes, however, this function is called in "dev_receive" function which is in charge of running a thread for 
-	  each of the requested tests. 
-	  
-	  The problem comes when more than one test is demanded in a single call, the first test will be parsed from the command line and the 
-	  associated thread started, the while loop will then continue and parse the following test from the command line provided, to fetch 
-	  the node with minimum load this function will be called. If we hold the node lock for each iteration of the "list_for_each_entry" 
-	  under this lines preempt_count will be altered as usual. Lets remember that while this loop is running the thread associated with 
-	  the first test parsed is being started, hence, at some point "schedule()" will be called to schedule the function associated with 
-	  the thread. I think that due to the interaction of the locks in this function, it is, due to some preemption imbalace derivated from 
-	  the "spin_lock" and "spin_unlock" functions "in_atomic()" will evaluate to true while the "schedule()" call mentioned above happens, 
-	  hence "BUG: scheduling while atomic [...]" will be raised. 
-
-	  I think this is a bug not due to my code (if it is not please correct it ...) and I can't find a way of holding the locks in a "safe" 
-	  manner here, so I leave here the lines I would like to add commented and if somebody wants to give it a try just uncomment them and 
-	  enjoy the bug! ;P  
-
-	 */
-	
-	list_for_each_entry(node, &test_list, elem) {
-		
-		//spin_lock (&node->lock);
-		if (!node->selectable)
-			continue;
-		
+	list_for_each_entry(node, &node_list, elem) {
+			
 		if (node->pending == 0) {
-
-			//spin_unlock (&node->lock);
+			
 			return node;
 			
 		} else if (node->pending < minim) {
 
 			minim = node->pending;
-			//spin_unlock (&node->lock);
 			ret = node;
 		}
 	}
@@ -884,14 +875,14 @@ static int __init dmatest_init(void)
 	    return -6;
 		
 	}
-
+	
 	//dmaengine_get();
 	dma_cap_zero(mask);
 	
 	for (i = 0; i < 2; i++)
 		dma_cap_set(dma_capabilities[i], mask);
 	
-	for (i = 0; i < (max_chann + 2); i++) {
+	for (i = 0; i < max_chann; i++) {
 		
 		telem * node = (telem *) kzalloc(sizeof(telem), GFP_KERNEL);
 
@@ -901,12 +892,11 @@ static int __init dmatest_init(void)
 			
 			spin_lock_init(&node->lock);
 			INIT_LIST_HEAD(&node->jobs);
+			INIT_LIST_HEAD(&node->cmd_list);
 			node->pending = 0;
 			node->batch_size = 0;
-			node->args = -1;
-			node->selectable = true;
-			
-			list_add_tail(&node->elem, &test_list);
+
+			list_add_tail(&node->elem, &node_list);
 			
 		} else {
 			
@@ -937,7 +927,7 @@ static void __exit dmatest_exit(void)
 
 	telem * node, * temp;
 	
-	list_for_each_entry_safe(node, temp, &test_list, elem) {
+	list_for_each_entry_safe(node, temp, &node_list, elem) {
 		
 		if (node->pending) 
 			terminate_node( node->id );

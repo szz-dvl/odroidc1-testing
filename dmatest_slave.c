@@ -17,7 +17,7 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
 	
 	tinfo->tname = dire ? "do_slave_dev_to_mem" : "do_slave_mem_to_dev";
 	
-	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
+	pr_info("%u >> Entering %s, size: %s, amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
 	
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
 	    goto cfg_error;
@@ -26,7 +26,7 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
 		if ( !allocate_arrays (tinfo, (tinfo->amount - 1), dire ? tinfo->isize : 0, dire ? 0 : tinfo->osize) )
 			goto cfg_error;	
 		else
-			pr_info("Succefully mapped dst and src dma addresses.\n");
+			pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	}
 	
     temp = list_first_entry(&tinfo->data, tdata, elem);
@@ -49,9 +49,9 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
 	
 	/* All functions that run "device_control" must return the status of the channel, in this case DMA_SUCCESS */
 	if (ret != DMA_SUCCESS)
-		pr_warn("Strange status: %d\n", ret);
+		pr_warn("%u >> Strange status: %d\n", tinfo->parent->id, ret);
 	else 
-		pr_info("Slave config OK. (%d)\n", ret);
+		pr_info("%u >> Slave config OK. (%d)\n", tinfo->parent->id, ret);
 	
 	if (tinfo->amount != 1) {
 		
@@ -73,7 +73,7 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
 			sg_dma_len(sgl) = dire ? tinfo->isize : tinfo->osize;
 			
 			if (verbose >= 2)
-				pr_info("Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", j, block->src_dma, block->dst_dma, sg_dma_len(sgl),
+				pr_info("%u >> Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", tinfo->parent->id, j, block->src_dma, block->dst_dma, sg_dma_len(sgl),
 						(void *) temp != (void *) &tinfo->data ? dire ? (temp->dst_dma - (block->dst_dma + sg_dma_len(sgl))) : (temp->src_dma - (block->src_dma + sg_dma_len(sgl))) : 0);
 			
 		    sgl = sg_next(sgl);
@@ -104,7 +104,7 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
 	
  cfg_error:
 	
-	pr_err("Configuration error.");
+	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
     list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 		
@@ -148,12 +148,12 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	 
 	tinfo->tname = __func__;
 	
-	pr_info("Entering %s, size: %s, amount: %u\n", tinfo->tname, hr_size, tinfo->amount);
+	pr_info("%u >> Entering %s, size: %s, amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
 
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
 	    goto cfg_error;
 	else
-		pr_info("Succefully mapped dst and src dma addresses.\n");
+		pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	
     block = list_first_entry(&tinfo->data, tdata, elem);
 	
@@ -167,9 +167,9 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	
 	/* All functions that run "device_control" must return the status of the channel, in this case DMA_SUCCESS */
 	if (ret != DMA_SUCCESS)
-		pr_warn("Strange status: %d\n", ret);
+		pr_warn("%u >> Strange status: %d\n", tinfo->parent->id, ret);
 	else 
-		pr_info("Slave config OK. (%d)\n", ret);
+		pr_info("%u >> Slave config OK. (%d)\n", tinfo->parent->id, ret);
 
 	*block->output = dvc_value; 
 	
@@ -215,7 +215,7 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	
  cfg_error:
 	
-	pr_err("Configuration error.");
+	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
 	block = list_first_entry(&tinfo->data, tdata, elem);
 	
