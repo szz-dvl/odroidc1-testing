@@ -60,7 +60,7 @@ typedef struct test_data {
 typedef struct test_elem {
 
 	uint id;
-
+	
 	spinlock_t lock;
 	
 	struct list_head jobs;
@@ -106,6 +106,7 @@ typedef struct test_job {
 tjob * init_job ( telem * node, uint test, int subtest);
 bool allocate_arrays ( tjob * tinfo, uint amount, uint isize, uint osize );
 bool submit_transaction ( tjob * tinfo );
+bool check_results ( tjob * tinfo );
 
 /* Slave_SG */
 bool do_slave_dev_to_mem ( telem * node );
@@ -121,6 +122,7 @@ bool do_interleaved_dev_to_dev ( telem * node );
 bool do_dma_ileaved ( telem * node );
 
 /* Cyclic */
+void cyclic_callback ( void * job );
 bool do_cyclic_dev_to_mem ( telem * node );
 bool do_cyclic_dev_to_dev ( telem * node );
 bool do_cyclic_mem_to_dev ( telem * node );

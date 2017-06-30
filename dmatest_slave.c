@@ -7,11 +7,12 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
     struct sg_table sgt;
 	struct scatterlist * sgl;
 	int ret, j, i;
-	tjob * tinfo = init_job(node, DMA_SLAVE_SG, dire ? 0 : 1); 
+	tjob * tinfo = init_job(node, DMA_SLAVE_SG, dire ? 0 : 1);
 
-	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE) : 1;
-	tinfo->isize = dire ? (mode_2d ? PAGE_SIZE : glob_size) : sizeof(unsigned long long);
-	tinfo->osize = dire ? sizeof(unsigned long long) : (mode_2d ? PAGE_SIZE : glob_size);
+	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
+	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(tinfo->real_size, PAGE_SIZE) : 1;
+	tinfo->isize = dire ? (mode_2d ? PAGE_SIZE : tinfo->real_size) : sizeof(unsigned long long);
+	tinfo->osize = dire ? sizeof(unsigned long long) : (mode_2d ? PAGE_SIZE : tinfo->real_size);
 	
 	tinfo->tname = dire ? "do_slave_dev_to_mem" : "do_slave_mem_to_dev";
 	
@@ -139,7 +140,8 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	struct scatterlist * sgl;
 	int ret;
 	tjob * tinfo = init_job(node, DMA_SLAVE_SG, 2); 
-	
+
+	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE) : 1;
 	tinfo->osize = sizeof(unsigned long long);
 	tinfo->isize = sizeof(unsigned long long);
@@ -201,7 +203,7 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	} else 
 		tinfo->tx_desc = dmaengine_prep_slave_single(tinfo->parent->chan,
 													 0, /* Ignored for DMA_DEV_TO_DEV*/
-													 ALIGN(glob_size, sizeof(unsigned long long)),
+													 tinfo->real_size,
 													 DMA_DEV_TO_DEV,
 													 flags);
 	

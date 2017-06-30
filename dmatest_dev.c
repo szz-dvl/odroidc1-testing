@@ -252,7 +252,6 @@ static uint jobs_for_cmd (command * cmd) {
 				
 		case ALL_TESTS:
 			{
-				
 				ret = 15;	
 			}
 			break;;
@@ -433,7 +432,7 @@ static bool dvc_vs_dvc ( tjob * tinfo ) {
 	
 }
 
-static bool check_results ( tjob * tinfo ) {
+bool check_results ( tjob * tinfo ) {
 	
 	switch ( tinfo->tnum ) {
 	case DMA_SLAVE_SG:
@@ -442,6 +441,7 @@ static bool check_results ( tjob * tinfo ) {
 			return dvc_vs_array(tinfo);
 		else
 			return dvc_vs_dvc(tinfo);
+	case DMA_CYCL:
 	case DMA_ILEAVED:
 		switch(tinfo->subt) {
 		case 0:
@@ -451,7 +451,7 @@ static bool check_results ( tjob * tinfo ) {
 			return dvc_vs_array(tinfo);
 		case 3:
 			return dvc_vs_dvc(tinfo);
-		}	
+		}
 	default:
 		pr_warn("%u >> Check results not implemented for test %u\n", tinfo->parent->id, tinfo->tnum);
 		return true;
@@ -514,6 +514,7 @@ static bool perform_jobs ( int node_id ) {
 		   Only the first call to "dma_async_issue_pending" will have effect here, 
 		   done this way to finish transactions not configured as asyncronous in the
 		   moment of its submission.
+		   
 		*/
 		
 		list_for_each_entry (job, &node->jobs, elem) 
@@ -547,9 +548,18 @@ bool submit_transaction ( tjob * tinfo ) {
 		
 	} else
 		pr_info("%u >> Got descriptor (%pB)\n", tinfo->parent->id, tinfo->tx_desc);
-	
-    tinfo->tx_desc->callback = async_mode ? (void *) &finish_transaction : NULL;
-	tinfo->tx_desc->callback_param = async_mode ? (void *) tinfo : NULL;
+
+	if (tinfo->tnum == DMA_CYCL) {
+
+		tinfo->tx_desc->callback = (void *) &cyclic_callback;
+		tinfo->tx_desc->callback_param = (void *) tinfo;
+			
+	} else {
+
+		tinfo->tx_desc->callback = async_mode ? (void *) &finish_transaction : NULL;
+		tinfo->tx_desc->callback_param = async_mode ? (void *) tinfo : NULL;
+
+	}
 	
 	tinfo->tx_cookie = dmaengine_submit(tinfo->tx_desc);
 	
@@ -770,16 +780,16 @@ static int run_test (void * node_ptr) {
 				{
 					switch(cmd->args) {
 					case 0:
-						ret = do_cyclic_dev_to_mem ( node );
+						ret = do_cyclic_mem_to_mem ( node );
 						break;;
 					case 1:
-						ret = do_cyclic_dev_to_dev ( node );
+						ret = do_cyclic_dev_to_mem ( node );
 						break;;
 					case 2:
 						ret = do_cyclic_mem_to_dev ( node );
 						break;;
 					case 3:
-						ret = do_cyclic_mem_to_mem ( node );
+						ret = do_cyclic_dev_to_dev ( node );
 						break;;
 					default:
 						ret = do_dma_cyclic ( node );
