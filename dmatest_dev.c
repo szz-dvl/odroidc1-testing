@@ -62,8 +62,8 @@ char hr_size [32] = "4K";
 /* Default value for parameters */
 
 unsigned int dvc_value = 100;
-unsigned int verbose = 1;
 unsigned long long glob_size = 4 * 1024;
+unsigned int verbose = 0;
 
 bool async_mode = true;
 bool mode_2d = false;
@@ -275,8 +275,9 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 
 	for (i = 0; i < max_chann; i++)
 		nodes[i] = NULL;
-		
-	print_parameters();
+
+	if (verbose >= 1)
+		print_parameters();
 	
 	strcpy(str, buff);
 
@@ -470,7 +471,7 @@ static bool terminate_node ( int node_id ) {
 		ret = dmaengine_terminate_all ( node->chan );
 		
 		list_for_each_entry_safe (job, temp, &node->jobs, elem) {
-
+	
 			list_for_each_entry_safe (block, tmp, &job->data, elem) {
 				
 				if (block->dst_dma)
@@ -478,24 +479,26 @@ static bool terminate_node ( int node_id ) {
 				
 				if (block->src_dma)
 					dma_free_coherent(node->chan->device->dev, job->osize, block->output, block->src_dma);
-		
+				
 				list_del(&block->elem);
 				kfree(block);
-		
+				
 			}
-
+			
 			list_del(&job->elem);
 			kfree(job);
 		}
-
+		
 		spin_lock (&node->lock);
 		node->pending = 0;
 		spin_unlock (&node->lock);
+
+		pr_info("%u >> Node %d (%s) terminated\n", node_id, node_id, dma_chan_name(node->chan));
 		
 		dma_release_channel ( node->chan );
 		node->chan = NULL;
-
-	} else
+		
+	} else if (node_id > max_chann)
 		pr_err("Node %d not existent\n", node_id);
 	
 	return ret == DMA_SUCCESS; /* Must always be true */
@@ -551,8 +554,8 @@ bool submit_transaction ( tjob * tinfo ) {
 
 	if (tinfo->tnum == DMA_CYCL) {
 
-		tinfo->tx_desc->callback = (void *) &cyclic_callback;
-		tinfo->tx_desc->callback_param = (void *) tinfo;
+		tinfo->tx_desc->callback = NULL;//(void *) &cyclic_callback;
+		tinfo->tx_desc->callback_param = NULL;//(void *) tinfo;
 			
 	} else {
 
