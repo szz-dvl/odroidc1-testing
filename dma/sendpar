@@ -3,6 +3,7 @@
 value=$(( ( RANDOM % 32 )  + 1 ))
 verbose=1
 size="4K"
+periods=1
 async="Y"
 mode2d="N"
 batch="N"
@@ -10,7 +11,7 @@ direction="Y"
 def=""
 
 # read the options
-TEMP=`getopt -o n:s:a::b::v:2::d::o --long value:,size:,async::,batch::,verbose:,2dmode::,direction::,original -n 'sendpar' -- "$@"`
+TEMP=`getopt -o n:s:p:a::b::v:2::d::o --long value:,size:,periods:,async::,batch::,verbose:,2dmode::,direction::,original -n 'sendpar' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -22,6 +23,10 @@ while true ; do
 		-s | --size)
 			size="$2" ; shift 2 ;
 			echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/glob_size &> /dev/null ;;
+
+		-p | --periods)
+			periods="$2" ; shift 2 ;
+			echo -n "$periods" | sudo tee /sys/kernel/debug/dmatest/periods &> /dev/null ;;
 		
 		-a | --async)
 
@@ -107,6 +112,7 @@ if [ ! -z "$def" ]; then
 
 	echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value &> /dev/null
 	echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/glob_size &> /dev/null
+	echo -n "$periods" | sudo tee /sys/kernel/debug/dmatest/periods &> /dev/null
 	echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
 	echo -n "$mode2d" | sudo tee /sys/kernel/debug/dmatest/2d_mode &> /dev/null
 	echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null

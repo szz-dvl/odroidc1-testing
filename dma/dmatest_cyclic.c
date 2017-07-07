@@ -3,10 +3,16 @@
 void cyclic_callback ( void * job ) {
 
 	tjob * tinfo = (tjob *) job;
-	
-	pr_info("Cyclic callback, period done in %u nanoseconds.\n", jiffies_to_usecs(jiffies - tinfo->stime));
-	
+	unsigned long diff = jiffies - tinfo->stime;
+	bool check;
+
 	tinfo->stime = jiffies;
+	check = check_results(tinfo);
+	
+	if (check)
+		pr_info("%u >> Cyclic callback, period (%u Bytes) done in %u nanoseconds.\n", tinfo->parent->id, tinfo->amount, jiffies_to_usecs(diff));
+	else
+	    pr_err("%u >> Data integriry check failed for test %u,%d (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->subt, tinfo->tname);
 }
 
 static bool do_cyclic_mem_to_dev_dev_to_mem ( telem * node, bool dire ) {
@@ -14,20 +20,20 @@ static bool do_cyclic_mem_to_dev_dev_to_mem ( telem * node, bool dire ) {
    	unsigned long flags = 0;
 	tdata * block;
 	int ret, i;
-	tjob * tinfo = init_job(node, DMA_CYCL, dire ? 1 : 2); 
-
-	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
-	tinfo->amount = !(tinfo->real_size % PAGE_SIZE) ? DIV_ROUND_UP_ULL(tinfo->real_size, PAGE_SIZE) : 1;
+	tjob * tinfo = init_job(node, DMA_CYCL, dire ? 1 : 2);
 	
+	tinfo->amount = DIV_ROUND_UP_ULL(ALIGN(glob_size, sizeof(unsigned long long)), periods);
+	tinfo->real_size = periods * tinfo->amount;
+		
 	tinfo->osize = dire ? sizeof(unsigned long long) : tinfo->real_size;
 	tinfo->isize = dire ? tinfo->real_size : sizeof(unsigned long long);
 
 	tinfo->tname = __func__;
 	
-	pr_info("%u >> Entering %s, size: %s, periods: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
+	pr_info("%u >> Entering %s, size: %s, periods: %u\n", tinfo->parent->id, tinfo->tname, hr_size, periods);
 
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
-	    goto cfg_error;
+	    return false;
 	else
 		pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	
@@ -62,9 +68,12 @@ static bool do_cyclic_mem_to_dev_dev_to_mem ( telem * node, bool dire ) {
 	tinfo->tx_desc = dmaengine_prep_dma_cyclic(tinfo->parent->chan,
 											   dire ? block->dst_dma : block->src_dma, /* Ignored for DMA_DEV_TO_DEV*/
 											   tinfo->real_size,
-											   !(tinfo->real_size % PAGE_SIZE) ? PAGE_SIZE : tinfo->real_size,
+											   tinfo->amount,
 											   dire ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
 											   flags);
+	
+	if (!tinfo->tx_desc)
+		goto cfg_error;
 	
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
@@ -75,17 +84,11 @@ static bool do_cyclic_mem_to_dev_dev_to_mem ( telem * node, bool dire ) {
 	
 	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
-	block = list_first_entry_or_null(&tinfo->data, tdata, elem);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 	
-	if (block) {
-		
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
-		
-		list_del(&block->elem);
-		kfree(block);
-		
-	}
+	list_del(&block->elem);
+	kfree(block);
 	
 	return false;	
 	
@@ -97,19 +100,19 @@ bool do_cyclic_mem_to_mem_dev_to_dev ( telem * node, bool dire )
 	tdata * block;
 	int ret, i;
 	tjob * tinfo = init_job(node, DMA_CYCL, dire ? 3 : 0);
-	
-	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
-	tinfo->amount = !(tinfo->real_size % PAGE_SIZE) ? DIV_ROUND_UP_ULL(tinfo->real_size, PAGE_SIZE) : 1;
+
+	tinfo->amount = DIV_ROUND_UP_ULL(ALIGN(glob_size, sizeof(unsigned long long)), periods);
+	tinfo->real_size = periods * tinfo->amount;
 	
 	tinfo->osize = dire ? sizeof(unsigned long long) : tinfo->real_size;
 	tinfo->isize = dire ? sizeof(unsigned long long) : tinfo->real_size;
 	
 	tinfo->tname = __func__;
 	
-	pr_info("%u >> Entering %s, size: %s, periods: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
+	pr_info("%u >> Entering %s, size: %s, periods: %u\n", tinfo->parent->id, tinfo->tname, hr_size, periods);
 
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
-	    goto cfg_error;
+	    return false;
 	else
 		pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	
@@ -150,9 +153,12 @@ bool do_cyclic_mem_to_mem_dev_to_dev ( telem * node, bool dire )
 	tinfo->tx_desc = dmaengine_prep_dma_cyclic(tinfo->parent->chan,
 											   direction ? block->dst_dma : block->src_dma, /* Ignored for DMA_DEV_TO_DEV*/
 											   tinfo->real_size,
-											   !(tinfo->real_size % PAGE_SIZE) ? PAGE_SIZE : tinfo->real_size,
+											   tinfo->amount,
 											   dire ? DMA_DEV_TO_DEV : DMA_MEM_TO_MEM,
 											   flags);
+
+	if (!tinfo->tx_desc)
+		goto cfg_error;
 	
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
@@ -163,18 +169,12 @@ bool do_cyclic_mem_to_mem_dev_to_dev ( telem * node, bool dire )
 	
 	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
-	block = list_first_entry_or_null(&tinfo->data, tdata, elem);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 	
-	if (block) {
+	list_del(&block->elem);
+	kfree(block);
 		
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
-		
-		list_del(&block->elem);
-		kfree(block);
-		
-	}
-	
 	return false;
 }
 

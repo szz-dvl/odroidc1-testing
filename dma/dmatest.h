@@ -96,10 +96,12 @@ typedef struct test_job {
 	int subt;
 	
 	unsigned long stime;
-
+	
 	bool async;
-
+	
 	unsigned long long real_size;
+
+	int memset_val;
 	
 } tjob;
 
@@ -142,7 +144,7 @@ bool do_dma_memset ( telem * node );
 bool do_dma_interrupt ( telem * node ); /* Don't know how to do this ...*/
 
 /* Parameters ofered in debugfs */
-extern unsigned int dvc_value, verbose;
+extern unsigned int dvc_value, verbose, periods;
 extern bool async_mode, mode_2d;
 extern unsigned long long glob_size;
 extern bool direction;

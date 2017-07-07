@@ -64,6 +64,7 @@ char hr_size [32] = "4K";
 unsigned int dvc_value = 100;
 unsigned long long glob_size = 4 * 1024;
 unsigned int verbose = 0;
+unsigned int periods = 1; /* For DMA_CYCLIC */
 
 bool async_mode = true;
 bool mode_2d = false;
@@ -79,6 +80,14 @@ static bool register_debugfs (void) {
 	root = debugfs_create_dir("dmatest", NULL);	
 	if (!root || IS_ERR(root))
 		goto err_reg;
+
+	d = debugfs_create_file("glob_size", S_IRUGO | S_IWUSR, root, hr_size, &size_fops);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("dvc_value", S_IRUGO | S_IWUSR, root, (u32 *)&dvc_value);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
 	
 	d = debugfs_create_u32("major", S_IRUGO, root, (u32 *)&major);
 	if (IS_ERR_OR_NULL(d))
@@ -88,15 +97,11 @@ static bool register_debugfs (void) {
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
-	d = debugfs_create_file("glob_size", S_IRUGO | S_IWUSR, root, hr_size, &size_fops);
-	if (IS_ERR_OR_NULL(d))
-	    goto err_reg;
-	
-	d = debugfs_create_u32("dvc_value", S_IRUGO | S_IWUSR, root, (u32 *)&dvc_value);
-	if (IS_ERR_OR_NULL(d))
-	    goto err_reg;
-	
 	d = debugfs_create_u32("verbose", S_IRUGO | S_IWUSR, root, (u32 *)&verbose);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("periods", S_IRUGO | S_IWUSR, root, (u32 *)&periods);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -115,6 +120,7 @@ static bool register_debugfs (void) {
 	d = debugfs_create_bool("direction", S_IRUGO | S_IWUSR, root, (u32 *)&direction);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
+
 	
 	return true;
 	
@@ -188,6 +194,7 @@ static void print_parameters (void) {
 	pr_info("2D_MODE: %s\n", mode_2d ? "true" : "false");
 	pr_info("BATCH_MODE: %s\n", batch_mode ? "true" : "false");
 	pr_info("DIRECTION: %s\n", direction ? "true" : "false");
+	pr_info("PERIODS: %u\n", periods);
 	pr_info("VERBOSE: %u\n\n", verbose);
 	
 }
@@ -356,6 +363,19 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	return len;
 }
 
+static bool memset_validation ( tjob * tinfo ) {
+
+	uint i;
+	bool passed = true;
+	uint asize = tinfo->isize / sizeof(int);
+	tdata * block = list_first_entry(&tinfo->data, tdata, elem);
+   		
+	for (i = 0; i < asize && passed; i++)
+		passed = (block->input[i] == tinfo->memset_val);
+   
+	return passed;
+}
+
 static bool dvc_vs_array ( tjob * tinfo ) {
 	
 	unsigned long long * dvc;
@@ -374,7 +394,7 @@ static bool dvc_vs_array ( tjob * tinfo ) {
 		list_for_each_entry(block, &tinfo->data, elem) {
 			
 			for (i = 0; i < asize && passed; i++)
-				passed = block->input[i] == *dvc;
+				passed = (block->input[i] == *dvc);
 			
 			if (!passed)
 				break;
@@ -437,7 +457,6 @@ bool check_results ( tjob * tinfo ) {
 	
 	switch ( tinfo->tnum ) {
 	case DMA_SLAVE_SG:
-		
 		if (tinfo->subt <= 1)
 			return dvc_vs_array(tinfo);
 		else
@@ -453,6 +472,12 @@ bool check_results ( tjob * tinfo ) {
 		case 3:
 			return dvc_vs_dvc(tinfo);
 		}
+	case DMA_MCPY:
+		return array_vs_array(tinfo);
+	case DMA_MSET:
+		return memset_validation(tinfo);
+	case DMA_IRQ:
+		return true;
 	default:
 		pr_warn("%u >> Check results not implemented for test %u\n", tinfo->parent->id, tinfo->tnum);
 		return true;
@@ -554,8 +579,8 @@ bool submit_transaction ( tjob * tinfo ) {
 
 	if (tinfo->tnum == DMA_CYCL) {
 
-		tinfo->tx_desc->callback = NULL;//(void *) &cyclic_callback;
-		tinfo->tx_desc->callback_param = NULL;//(void *) tinfo;
+		tinfo->tx_desc->callback = (verbose >= 3) ? (void *) &cyclic_callback : NULL;
+		tinfo->tx_desc->callback_param = (verbose >= 3) ? (void *) tinfo : NULL;
 			
 	} else {
 
@@ -586,6 +611,7 @@ static bool finish_transaction ( void * args ) {
 	enum dma_status to = DMA_SUCCESS;
 	uint i, j = 0;
 	bool check = false;
+	unsigned long diff = jiffies - tinfo->stime;
 
 	if (!tinfo->async)
 		to = dma_wait_for_async_tx(tinfo->tx_desc);
@@ -625,7 +651,7 @@ static bool finish_transaction ( void * args ) {
 	}
 	
 	if (to != DMA_ERROR && check)
-		pr_info("%u >> Moved %s (%llu Bytes) in %u nanoseconds.\n", tinfo->parent->id, hr_size, tinfo->real_size ? tinfo->real_size : glob_size, jiffies_to_usecs(jiffies - tinfo->stime));
+		pr_info("%u >> Moved %s (%llu Bytes) in %u nanoseconds.\n", tinfo->parent->id, hr_size, tinfo->real_size ? tinfo->real_size : glob_size, jiffies_to_usecs(diff));
 
 	spin_lock(&tinfo->parent->lock);
 	
@@ -641,7 +667,7 @@ static bool finish_transaction ( void * args ) {
 	
 	kfree(tinfo); 
 	   
-    return to != DMA_ERROR && check;
+    return (to != DMA_ERROR) && check;
 }
 
 bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize) {

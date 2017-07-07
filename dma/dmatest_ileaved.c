@@ -78,6 +78,9 @@ static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
 	
     tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->parent->chan, xt, flags);
 
+	if (!tinfo->tx_desc)
+		goto cfg_error;
+	
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
 	
@@ -187,6 +190,9 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 	
     tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->parent->chan, xt, flags);
 
+	if (!tinfo->tx_desc)
+		goto cfg_error;
+	
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
 	
@@ -248,7 +254,7 @@ bool do_interleaved_dev_to_dev ( telem * node )
 	tinfo->osize = sizeof(unsigned long long);
 	
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
-		goto cfg_error;
+	    return false;
 	else 
 		pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 			
@@ -270,6 +276,9 @@ bool do_interleaved_dev_to_dev ( telem * node )
 	xt->sgl[0].icg = 0; /* Ignored, 1D always for DMA_DEV_TO_DEV */
 	
     tinfo->tx_desc = dmaengine_prep_interleaved_dma(tinfo->parent->chan, xt, flags);
+
+	if (!tinfo->tx_desc)
+		goto cfg_error;
 	
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
@@ -282,16 +291,12 @@ bool do_interleaved_dev_to_dev ( telem * node )
 	
 	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
-	block = list_first_entry_or_null(&tinfo->data, tdata, elem);
-	
-	if (block) {
 		
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 		
-		list_del(&block->elem);
-		kfree(block);
-	}
+	list_del(&block->elem);
+	kfree(block);
 	
 	kfree(xt);
 	

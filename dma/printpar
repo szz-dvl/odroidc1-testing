@@ -2,6 +2,7 @@
 
 echo "value: $(sudo cat /sys/kernel/debug/dmatest/dvc_value)"
 echo "size: $(sudo cat /sys/kernel/debug/dmatest/glob_size)"
+echo "periods: $(sudo cat /sys/kernel/debug/dmatest/periods)"
 echo "2d_mode: $(sudo cat /sys/kernel/debug/dmatest/2d_mode)"	
 echo "async: $(sudo cat /sys/kernel/debug/dmatest/async_mode)"
 echo "batch: $(sudo cat /sys/kernel/debug/dmatest/batch_mode)"

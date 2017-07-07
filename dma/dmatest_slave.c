@@ -95,6 +95,9 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
 													 dire ? tinfo->isize : tinfo->osize,
 													 dire ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
 													 flags);
+
+	if (!tinfo->tx_desc)
+		goto cfg_error;
 	
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
@@ -151,7 +154,7 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	pr_info("%u >> Entering %s, size: %s, amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
 
 	if ( !allocate_arrays (tinfo, 1, tinfo->isize, tinfo->osize) )
-	    goto cfg_error;
+	    return false;
 	else
 		pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	
@@ -208,6 +211,9 @@ bool do_slave_dev_to_dev ( telem * node ) {
 													 flags);
 	
 	
+	if (!tinfo->tx_desc)
+		goto cfg_error;
+	
 	if (!submit_transaction(tinfo))
 		goto cfg_error;
 	
@@ -217,17 +223,13 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	
 	pr_err("%u >> Configuration error.", tinfo->parent->id);
 	
-	block = list_first_entry_or_null(&tinfo->data, tdata, elem);
 
-	if (block) {
-
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
-		dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
+	dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 	
-		list_del(&block->elem);
-		kfree(block);
-		
-	}
+	list_del(&block->elem);
+	kfree(block);
+	
 	
 	return false;
 }
