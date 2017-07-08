@@ -4,15 +4,11 @@ void cyclic_callback ( void * job ) {
 
 	tjob * tinfo = (tjob *) job;
 	unsigned long diff = jiffies - tinfo->stime;
-	bool check;
 
 	tinfo->stime = jiffies;
-	check = check_results(tinfo);
 	
-	if (check)
-		pr_info("%u >> Cyclic callback, period (%u Bytes) done in %u nanoseconds.\n", tinfo->parent->id, tinfo->amount, jiffies_to_usecs(diff));
-	else
-	    pr_err("%u >> Data integriry check failed for test %u,%d (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->subt, tinfo->tname);
+	pr_info("%u >> Cyclic callback, period (%u Bytes) done in %u nanoseconds.\n", tinfo->parent->id, tinfo->amount, jiffies_to_usecs(diff));
+	
 }
 
 static bool do_cyclic_mem_to_dev_dev_to_mem ( telem * node, bool dire ) {
@@ -22,13 +18,13 @@ static bool do_cyclic_mem_to_dev_dev_to_mem ( telem * node, bool dire ) {
 	int ret, i;
 	tjob * tinfo = init_job(node, DMA_CYCL, dire ? 1 : 2);
 	
-	tinfo->amount = DIV_ROUND_UP_ULL(ALIGN(glob_size, sizeof(unsigned long long)), periods);
+	tinfo->amount = ALIGN(DIV_ROUND_UP_ULL(glob_size, periods), sizeof(unsigned long long));
 	tinfo->real_size = periods * tinfo->amount;
 		
 	tinfo->osize = dire ? sizeof(unsigned long long) : tinfo->real_size;
 	tinfo->isize = dire ? tinfo->real_size : sizeof(unsigned long long);
 
-	tinfo->tname = __func__;
+	tinfo->tname = dire ? "do_cyclic_dev_to_mem" : "do_cyclic_mem_to_dev";
 	
 	pr_info("%u >> Entering %s, size: %s, periods: %u\n", tinfo->parent->id, tinfo->tname, hr_size, periods);
 
@@ -101,13 +97,13 @@ bool do_cyclic_mem_to_mem_dev_to_dev ( telem * node, bool dire )
 	int ret, i;
 	tjob * tinfo = init_job(node, DMA_CYCL, dire ? 3 : 0);
 
-	tinfo->amount = DIV_ROUND_UP_ULL(ALIGN(glob_size, sizeof(unsigned long long)), periods);
+    tinfo->amount = ALIGN(DIV_ROUND_UP_ULL(glob_size, periods), sizeof(unsigned long long));
 	tinfo->real_size = periods * tinfo->amount;
 	
 	tinfo->osize = dire ? sizeof(unsigned long long) : tinfo->real_size;
 	tinfo->isize = dire ? sizeof(unsigned long long) : tinfo->real_size;
 	
-	tinfo->tname = __func__;
+	tinfo->tname = dire ? "do_cyclic_dev_to_dev" : "do_cyclic_mem_to_mem";
 	
 	pr_info("%u >> Entering %s, size: %s, periods: %u\n", tinfo->parent->id, tinfo->tname, hr_size, periods);
 

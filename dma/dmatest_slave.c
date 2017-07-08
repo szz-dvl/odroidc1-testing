@@ -7,7 +7,7 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
     struct sg_table sgt;
 	struct scatterlist * sgl;
 	int ret, j, i;
-	tjob * tinfo = init_job(node, DMA_SLAVE_SG, dire ? 0 : 1);
+	tjob * tinfo = init_job(node, DMA_SLAVE_SG, dire ? 1 : 2);
 
 	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(tinfo->real_size, PAGE_SIZE) : 1;
@@ -142,7 +142,7 @@ bool do_slave_dev_to_dev ( telem * node ) {
 	struct sg_table sgt;
 	struct scatterlist * sgl;
 	int ret;
-	tjob * tinfo = init_job(node, DMA_SLAVE_SG, 2); 
+	tjob * tinfo = init_job(node, DMA_SLAVE_SG, 3); 
 
 	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
 	tinfo->amount = mode_2d ? DIV_ROUND_UP_ULL(glob_size, PAGE_SIZE) : 1;

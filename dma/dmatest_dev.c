@@ -363,6 +363,23 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	return len;
 }
 
+static bool cyclic_mem_to_mem_validate ( tjob * tinfo ) {
+
+	uint i, j;
+	bool passed = true;
+	uint asize = tinfo->real_size / sizeof(unsigned long long);
+	uint inner_asize = tinfo->amount / sizeof(unsigned long long);
+	tdata * block = list_first_entry(&tinfo->data, tdata, elem);
+	
+	for ( j = 0, i = 0; passed && i < asize; i++ ) {
+		passed = (block->input[i] == block->output[j]);
+		j = ((j + 1) % inner_asize);
+	}
+   	
+	return passed;
+
+}
+
 static bool memset_validation ( tjob * tinfo ) {
 
 	uint i;
@@ -403,10 +420,26 @@ static bool dvc_vs_array ( tjob * tinfo ) {
 	} else {
 		
 		/* Very weak data integrity test, best we can do however ... */
-		
-		dvc = block->input; 
-		passed = list_entry(tinfo->data.prev, tdata, elem)->output[(tinfo->osize / sizeof(unsigned long long)) - 1] == *dvc;
-		
+		if (tinfo->tnum != DMA_CYCL) {
+
+			dvc = block->input; 
+			passed = list_entry(tinfo->data.prev, tdata, elem)->output[(tinfo->osize / sizeof(unsigned long long)) - 1] == *dvc;
+
+		} else {
+
+			/* We don't know in which cycle we stoped the transaction, so we check all the values for the last position of the period. */
+			dvc = block->input;
+		    passed = false;
+			asize = tinfo->amount / sizeof(unsigned long long);
+			block = list_entry(tinfo->data.prev, tdata, elem);
+			
+			for (i = (asize - 1); i < (tinfo->real_size / sizeof(unsigned long long)); i+= asize) {
+				passed = (block->output[i] == *dvc);
+
+				if (passed)
+					break;
+			}
+		} 
 	}
 	
 	return passed;
@@ -457,11 +490,13 @@ bool check_results ( tjob * tinfo ) {
 	
 	switch ( tinfo->tnum ) {
 	case DMA_SLAVE_SG:
-		if (tinfo->subt <= 1)
+		if (tinfo->subt <= 2)
 			return dvc_vs_array(tinfo);
 		else
 			return dvc_vs_dvc(tinfo);
 	case DMA_CYCL:
+		if (tinfo->subt == 0) 
+			return cyclic_mem_to_mem_validate(tinfo);
 	case DMA_ILEAVED:
 		switch(tinfo->subt) {
 		case 0:
@@ -480,8 +515,40 @@ bool check_results ( tjob * tinfo ) {
 		return true;
 	default:
 		pr_warn("%u >> Check results not implemented for test %u\n", tinfo->parent->id, tinfo->tnum);
-		return true;
+		return false;
 	}	
+}
+
+static void print_block (tjob * job, tdata * block, int idx) {
+
+    long long inpt, oupt;
+	uint i;
+    unsigned int elem_size = (job->tnum == DMA_MSET) ? sizeof (int) : sizeof(unsigned long long);
+	
+	if (idx >= 0)
+		pr_info("%u >> Block %u [%p - 0x%08x] [%p - 0x%08x]: \n", job->parent->id, idx, block->input, block->dst_dma, block->output, block->src_dma);
+	
+	for (i = 0; i < ((unsigned long)job->real_size / elem_size); i++) {
+
+		oupt = job->tnum == DMA_MSET ? job->memset_val : *block->output;
+		inpt = *block->input;
+		
+		switch (job->subt) {
+		case 0:
+			oupt = block->output[i];
+			inpt = block->input[i];
+		case 1:
+			inpt = block->input[i];
+			break;
+		case 2:
+			oupt = block->output[i];
+			break;
+		default:
+			break;
+		}
+		
+		pr_info("%u >> %03d: %03llu - %03llu\n", job->parent->id, i, oupt, inpt);
+	}
 }
 
 static bool terminate_node ( int node_id ) {
@@ -490,14 +557,29 @@ static bool terminate_node ( int node_id ) {
 	enum dma_status ret = DMA_SUCCESS;
 	tjob * job, * temp;
 	tdata * block, * tmp;
+	bool check = true;
 	
 	if ( node && node->pending ) {
 		
 		ret = dmaengine_terminate_all ( node->chan );
-		
+
 		list_for_each_entry_safe (job, temp, &node->jobs, elem) {
-	
+
+			if (job->tnum == DMA_CYCL) {
+
+				check = check_results(job);
+
+				if (!check)
+					pr_err("%u >> Data integriry check failed for test %u (%s).\n", job->parent->id, job->tnum, job->tname);
+				else
+					pr_warn("%u >> Data integriry check success for test %u (%s).\n", job->parent->id, job->tnum, job->tname);
+				
+			}
+			
 			list_for_each_entry_safe (block, tmp, &job->data, elem) {
+
+				if ((job->tnum == DMA_CYCL && verbose >= 3) || !check) 	
+					print_block(job, block, -1);
 				
 				if (block->dst_dma)
 					dma_free_coherent(node->chan->device->dev, job->isize, block->input, block->dst_dma);
@@ -507,7 +589,6 @@ static bool terminate_node ( int node_id ) {
 				
 				list_del(&block->elem);
 				kfree(block);
-				
 			}
 			
 			list_del(&job->elem);
@@ -520,13 +601,13 @@ static bool terminate_node ( int node_id ) {
 
 		pr_info("%u >> Node %d (%s) terminated\n", node_id, node_id, dma_chan_name(node->chan));
 		
-		dma_release_channel ( node->chan );
-		node->chan = NULL;
+		/* dma_release_channel ( node->chan ); */
+		/* node->chan = NULL; */
 		
 	} else if (node_id > max_chann)
 		pr_err("Node %d not existent\n", node_id);
 	
-	return ret == DMA_SUCCESS; /* Must always be true */
+	return ret == DMA_SUCCESS;
 }
 
 /* Perform queued jobs on a given node */
@@ -579,8 +660,8 @@ bool submit_transaction ( tjob * tinfo ) {
 
 	if (tinfo->tnum == DMA_CYCL) {
 
-		tinfo->tx_desc->callback = (verbose >= 3) ? (void *) &cyclic_callback : NULL;
-		tinfo->tx_desc->callback_param = (verbose >= 3) ? (void *) tinfo : NULL;
+		tinfo->tx_desc->callback = (verbose >= 4) ? (void *) &cyclic_callback : NULL;
+		tinfo->tx_desc->callback_param = (verbose >= 4) ? (void *) tinfo : NULL;
 			
 	} else {
 
@@ -609,7 +690,7 @@ static bool finish_transaction ( void * args ) {
     tjob * tinfo = (tjob *) args;
 	tdata * block, * temp;
 	enum dma_status to = DMA_SUCCESS;
-	uint i, j = 0;
+	uint j = 0;
 	bool check = false;
 	unsigned long diff = jiffies - tinfo->stime;
 
@@ -620,22 +701,16 @@ static bool finish_transaction ( void * args ) {
 		check = check_results(tinfo);
 		
 	if (!check)
-		pr_err("%u >> Data integriry check failed for test %u,%d (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->subt, tinfo->tname);
+		pr_err("%u >> Data integriry check failed for test %u (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->tname);
 	else
-		pr_warn("%u >> Data integriry check success for test %u,%d (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->subt, tinfo->tname);
+		pr_warn("%u >> Data integriry check success for test %u (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->tname);
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
 		if (to != DMA_ERROR) {
 			
-			if (block->dst_dma && verbose >= 3) {
-				
-				pr_info("%u >> Block %u [%p][0x%08x]: \n", tinfo->parent->id, j, block->input, block->dst_dma);
-				
-				for (i = 0; i < (tinfo->isize / sizeof(unsigned long long)); i++)
-					pr_info("%u >> %03d: %03llu, 0x%08llx\n", tinfo->parent->id, i, block->input[i], block->input[i]);
-				
-			}
+			if (block->dst_dma && verbose >= 3)	
+				print_block(tinfo, block, j);
 		}
 		
 		if (block->dst_dma)

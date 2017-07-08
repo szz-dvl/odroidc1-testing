@@ -4,7 +4,7 @@ bool do_dma_memset ( telem * node )
 {
 	unsigned long flags = 0;
 	tdata * block;
-	tjob * tinfo = init_job(node, DMA_MSET, 0);
+	tjob * tinfo = init_job(node, DMA_MSET, 1);
 
 	tinfo->amount = 1;
 	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));

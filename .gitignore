@@ -3,6 +3,7 @@
 *.mod*
 *.cmd
 *~
+private*
 Module.symvers
 modules.order
 
