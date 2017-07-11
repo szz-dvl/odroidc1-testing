@@ -10,8 +10,10 @@ else
 	chann="$1"
 fi
 
-sudo rmmod dmatest
-sudo rm -rf /dev/${device}
+if [ -c /dev/dmatest ]; then
+	sudo rmmod dmatest
+	sudo rm -rf /dev/${device}
+fi
 
 #Debug para module_init.
 #echo 'Y' | sudo tee /sys/module/kernel/parameters/initcall_debug

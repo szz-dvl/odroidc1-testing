@@ -22,7 +22,7 @@ fi
 
 trap './sendcmd 9 && dmesg && cat /proc/irq/68/spurious && exit' SIGINT
 
-sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1,0
+sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1,0 1,1
 
 if [ -z $limit ]; then
 	for i in `seq 0 $limit`; do
