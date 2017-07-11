@@ -280,6 +280,8 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
     command * cmd;
     telem * nodes [max_chann];
 
+	*off += len;
+	
 	for (i = 0; i < max_chann; i++)
 		nodes[i] = NULL;
 
@@ -327,8 +329,16 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 
 		if (cmd >= 0) {
 
-		    cmd = (command *) kzalloc (sizeof(cmd), GFP_KERNEL | __GFP_REPEAT);
-		    cmd->cmd = com;
+		    cmd = (command *) kzalloc (sizeof(cmd), GFP_KERNEL);
+
+			if (!cmd) {
+				
+				pr_err("Failed to allocate command, aborting.\n");
+				return len;
+				
+			}
+
+			cmd->cmd = com;
 			cmd->args = args;
 				
 			if (node_id < 0)
@@ -358,7 +368,6 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 		
 	}
 	
-	*off += len;
 	
 	return len;
 }
@@ -559,12 +568,13 @@ static bool terminate_node ( int node_id ) {
 	tdata * block, * tmp;
 	bool check = true;
 	
-	if ( node && node->pending ) {
-		
-		ret = dmaengine_terminate_all ( node->chan );
+	if ( node ) {
 
+		if (node->chan)
+			ret = dmaengine_terminate_all ( node->chan );
+			
 		list_for_each_entry_safe (job, temp, &node->jobs, elem) {
-
+			
 			if (job->tnum == DMA_CYCL) {
 
 				check = check_results(job);
@@ -578,7 +588,7 @@ static bool terminate_node ( int node_id ) {
 			
 			list_for_each_entry_safe (block, tmp, &job->data, elem) {
 
-				if ((job->tnum == DMA_CYCL && verbose >= 3) || !check) 	
+				if (job->tnum == DMA_CYCL && verbose >= 3) 	
 					print_block(job, block, -1);
 				
 				if (block->dst_dma)
@@ -599,13 +609,16 @@ static bool terminate_node ( int node_id ) {
 		node->pending = 0;
 		spin_unlock (&node->lock);
 
-		pr_info("%u >> Node %d (%s) terminated\n", node_id, node_id, dma_chan_name(node->chan));
+		if (node->chan)
+			pr_info("%u >> Node %d (%s) terminated\n", node_id, node->id, dma_chan_name(node->chan));
+
+		if (node->chan)
+			dma_release_channel ( node->chan );
 		
-		/* dma_release_channel ( node->chan ); */
-		/* node->chan = NULL; */
+		node->chan = NULL;
 		
-	} else if (node_id > max_chann)
-		pr_err("Node %d not existent\n", node_id);
+	} else
+		pr_err("Node %d not existent.\n", node_id);
 	
 	return ret == DMA_SUCCESS;
 }
@@ -999,7 +1012,7 @@ static int run_test (void * node_ptr) {
 	
 		if (!ret)
 			pr_err("%u >> Error running command (%u).\n", node->id, cmd->cmd);
-
+		
 		list_del(&cmd->elem);
 		kfree(cmd);
 	}

@@ -1,0 +1,41 @@
+#!/bin/bash
+
+size="25K"
+periods=10
+limit=""
+
+if [ ! -z "$1" ]; then
+	size="$1"
+fi
+
+if [ ! -z "$2" ]; then
+	periods="$2"
+fi
+
+if [ ! -z "$3" ]; then
+	limit="$3"
+fi
+
+if [ ! -c /dev/dmatest ]; then
+	./dotestdev
+fi
+
+trap './sendcmd 9 && dmesg && cat /proc/irq/68/spurious && exit' SIGINT
+
+sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1,0
+
+if [ -z $limit ]; then
+	for i in `seq 0 $limit`; do
+		echo -en "\r\e[K$(cat /proc/irq/68/spurious | grep count)"
+		sleep 0.5
+	done
+
+	./sendcmd 9 && dmesg
+
+	echo "IRQ $(cat /proc/irq/68/spurious | grep count)"
+else
+	while true; do
+	        echo -en "\r\e[K$(cat /proc/irq/68/spurious | grep count)"
+                sleep 0.5
+        done
+fi

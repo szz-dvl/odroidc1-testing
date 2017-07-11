@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [ ! -c /dev/dmatest ]; then
+	./dotestdev
+fi
+
 value=$(( ( RANDOM % 32 )  + 1 ))
 verbose=1
 size="4K"

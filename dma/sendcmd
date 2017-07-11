@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [ ! -c /dev/dmatest ]; then
+	./dotestdev
+fi
+
 #Sends a set of commands to de test device. syntax: ./sendcmd cmdA[,argsA][,nodeA] cmdB[,argsB][,nodeB] cmdC ... cmdN[,argsN]
 
 #Information about available commands and the accepted arguments for each of those can be found in the device source and header files, to note it down:

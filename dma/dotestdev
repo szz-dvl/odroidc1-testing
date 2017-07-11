@@ -16,7 +16,7 @@ sudo rm -rf /dev/${device}
 #Debug para module_init.
 #echo 'Y' | sudo tee /sys/module/kernel/parameters/initcall_debug
 
-make clean && make
+make clean && make -j4
 sudo dmesg --clear
 sudo insmod dmatest.ko max_chann=${chann}
 dmesg
