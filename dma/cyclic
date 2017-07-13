@@ -17,25 +17,25 @@ if [ ! -z "$3" ]; then
 fi
 
 if [ ! -c /dev/dmatest ]; then
-	./dotestdev
+	./dotestdev && clear
 fi
 
-trap './sendcmd 9 && dmesg && cat /proc/irq/68/spurious && exit' SIGINT
+trap './sendcmd 9 && echo && dmesg && cat /proc/irq/68/spurious | grep -v "count" && exit' SIGINT
 
-sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1,0 1,1
+sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1,0 1,1 1,2 1,3
 
-if [ -z $limit ]; then
+if [ ! -z $limit ]; then
 	for i in `seq 0 $limit`; do
-		echo -en "\r\e[K$(cat /proc/irq/68/spurious | grep count)"
-		sleep 0.5
+		echo -en "\r\e[KIRQs: $(cat /proc/interrupts | grep s805_dmaengine_irq | cut -d " " -f 6) / TIMED_OUT: $(cat /proc/irq/42/spurious | grep count | cut -d " " -f 2)"
+		sleep 1
 	done
 
-	./sendcmd 9 && dmesg
+	./sendcmd 9 && echo && dmesg
 
-	echo "IRQ $(cat /proc/irq/68/spurious | grep count)"
+	cat /proc/irq/68/spurious | grep -v "count"
 else
 	while true; do
-	        echo -en "\r\e[K$(cat /proc/irq/68/spurious | grep count)"
+	        echo -en "\r\e[KIRQs: $(cat /proc/interrupts | grep s805_dmaengine_irq | cut -d " " -f 6) / TIMED_OUT: $(cat /proc/irq/42/spurious | grep count | cut -d " " -f 2)"
                 sleep 0.5
         done
 fi
