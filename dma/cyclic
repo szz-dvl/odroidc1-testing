@@ -5,6 +5,7 @@ periods=10
 limit=""
 paused=""
 ini_t=0
+ini_irqs=$(cat /proc/interrupts | grep s805_dmaengine_irq | awk '{print $2}')
 
 if [ ! -z "$1" ]; then
 	size="$1"
@@ -31,7 +32,7 @@ print_res() {
 
 print_status() {
 	
-	irqs=$(cat /proc/interrupts | grep s805_dmaengine_irq | awk '{print $2}')
+	irqs=$(( $(cat /proc/interrupts | grep s805_dmaengine_irq | awk '{print $2}') - $ini_irqs ))
 	to=$(cat /proc/interrupts | grep s805_dmaengine_to_irq | awk '{print $2}')
 	timed_out=$([ -z $to ] && echo -n "NO_TIMEOUT" || echo -n $to)
 	cycles=$(( $irqs / $periods ))
@@ -50,7 +51,7 @@ pause_resume() {
 		paused="~PAUSED~"
 	fi
 	
-	echo -ne "\e[1A"
+	echo -ne "\r\e[K\e[1A"
 }
 
 trap './sendcmd 9 && echo && print_res && cat /proc/irq/68/spurious | grep -v "count" && exit' SIGINT SIGTERM
