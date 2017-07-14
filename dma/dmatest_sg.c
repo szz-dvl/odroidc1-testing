@@ -15,11 +15,9 @@ bool do_dma_scatter_gather ( telem * node )
 
 	get_random_bytes(&src_amount, 32);
 	src_amount %= periods;
-	src_amount = ALIGN(src_amount, sizeof(unsigned long long));
 	
 	get_random_bytes(&dst_amount, 32);
 	dst_amount %= periods;
-	dst_amount = ALIGN(dst_amount, sizeof(unsigned long long));
 	
 	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
 	tinfo->amount = max(src_amount, dst_amount);

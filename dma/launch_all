@@ -4,7 +4,7 @@ if [ ! -c /dev/dmatest ]; then
 	./dotestdev
 fi
 
-implemented="0 1 2 0,0 0,1 0,2 1,0 1,1 1,2 1,3 2,0 2,1 2,2 2,3 4 5 6"
+implemented="7 0 2 0,0 0,1 0,2 2,0 2,1 2,2 2,3 4 5 6"
 size="32K"
 dire="Y"
 max_chann=$(( $(sudo cat /sys/kernel/debug/dmatest/max_chann) - 1 ))
