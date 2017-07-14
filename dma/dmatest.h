@@ -16,6 +16,7 @@
 #include <linux/kthread.h>
 #include <linux/jiffies.h>
 #include <linux/string.h>
+#include <linux/random.h>
 #include <linux/scatterlist.h>
 #include <linux/hardirq.h>
 
@@ -31,7 +32,9 @@ typedef enum test_type {
 	ALL_TESTS,
 	ISSUE_JOBS,
 	TERMINATE_NODE,
-
+    PAUSE_CHAN,
+    RESUME_CHAN
+	
 } ttype;
 
 typedef struct cmd_grabber {

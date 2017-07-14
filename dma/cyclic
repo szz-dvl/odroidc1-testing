@@ -1,8 +1,24 @@
 #!/bin/bash
 
-size="25K"
+trap './sendcmd 9 && echo && print_res && cat /proc/irq/68/spurious | grep -v "count" && exit' SIGINT
+
+sudo journalctl --flush
+
+if [ ! -c /dev/dmatest ]; then
+	./dotestdev && clear
+else
+	sudo dmesg --clear
+fi
+
+max_chann=$(( $(sudo cat /sys/kernel/debug/dmatest/max_chann) - 1 ))
+size="256K"
 periods=10
 limit=""
+
+print_res() {
+	sleep 0.5
+	for i in `seq 0 $max_chann`; do dmesg | grep --color=always "$i >>"; echo ; done
+}
 
 if [ ! -z "$1" ]; then
 	size="$1"
@@ -16,26 +32,20 @@ if [ ! -z "$3" ]; then
 	limit="$3"
 fi
 
-if [ ! -c /dev/dmatest ]; then
-	./dotestdev && clear
-fi
-
-trap './sendcmd 9 && echo && dmesg && cat /proc/irq/68/spurious | grep -v "count" && exit' SIGINT
-
-sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1,0 1,1 1,2 1,3
+sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1 1,0 1,1 1,2 1,3
 
 if [ ! -z $limit ]; then
 	for i in `seq 0 $limit`; do
-		echo -en "\r\e[KIRQs: $(cat /proc/interrupts | grep s805_dmaengine_irq | cut -d " " -f 6) / TIMED_OUT: $(cat /proc/irq/42/spurious | grep count | cut -d " " -f 2)"
+		echo -en "\r\e[KIRQs: $(cat /proc/interrupts | grep s805_dmaengine_irq | awk '{print $2}') / TIMED_OUT: $(cat /proc/irq/42/spurious | grep count | cut -d " " -f 2)"
 		sleep 1
 	done
 
-	./sendcmd 9 && echo && dmesg
+	./sendcmd 9 && echo && print_res
 
 	cat /proc/irq/68/spurious | grep -v "count"
 else
 	while true; do
-	        echo -en "\r\e[KIRQs: $(cat /proc/interrupts | grep s805_dmaengine_irq | cut -d " " -f 6) / TIMED_OUT: $(cat /proc/irq/42/spurious | grep count | cut -d " " -f 2)"
+	        echo -en "\r\e[KIRQs: $(cat /proc/interrupts | grep s805_dmaengine_irq | awk '{print $2}') / TIMED_OUT: $(cat /proc/irq/42/spurious | grep count | cut -d " " -f 2)"
                 sleep 0.5
         done
 fi

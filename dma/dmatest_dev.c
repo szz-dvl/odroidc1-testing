@@ -81,19 +81,19 @@ static bool register_debugfs (void) {
 	if (!root || IS_ERR(root))
 		goto err_reg;
 
-	d = debugfs_create_file("glob_size", S_IRUGO | S_IWUSR, root, hr_size, &size_fops);
-	if (IS_ERR_OR_NULL(d))
-	    goto err_reg;
-
-	d = debugfs_create_u32("dvc_value", S_IRUGO | S_IWUSR, root, (u32 *)&dvc_value);
-	if (IS_ERR_OR_NULL(d))
-	    goto err_reg;
-	
 	d = debugfs_create_u32("major", S_IRUGO, root, (u32 *)&major);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 
 	d = debugfs_create_u32("max_chann", S_IRUGO, root, (u32 *)&max_chann);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+	
+	d = debugfs_create_file("glob_size", S_IRUGO | S_IWUSR, root, hr_size, &size_fops);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("dvc_value", S_IRUGO | S_IWUSR, root, (u32 *)&dvc_value);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -268,7 +268,29 @@ static uint jobs_for_cmd (command * cmd) {
 		};
 
 	return ret;
-} 
+}
+
+static void free_nodes (telem * nodes []) {
+
+	uint i;
+	telem * node;
+	command * cmd, * temp;
+	
+	for (i = 0; i < max_chann; i++) {
+
+		node = nodes[i];
+		
+		if (node) {
+			
+			list_for_each_entry_safe (cmd, temp, &node->cmd_list, elem) {
+
+				node->pending -= jobs_for_cmd(cmd);
+			    list_del(&cmd->elem);
+				kfree(cmd);
+			}
+		}
+	}
+}
 
 static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
 	
@@ -334,6 +356,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 			if (!cmd) {
 				
 				pr_err("Failed to allocate command, aborting.\n");
+				free_nodes (nodes);
 				return len;
 				
 			}
@@ -349,9 +372,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 			if (node) {
 				
 				list_add_tail(&cmd->elem, &node->cmd_list);
-				spin_lock (&node->lock);
 				node->pending += jobs_for_cmd(cmd);
-				spin_unlock (&node->lock);
 				nodes[node->id] = node;
 				
 			} else 	
@@ -495,6 +516,81 @@ static bool dvc_vs_dvc ( tjob * tinfo ) {
 	
 }
 
+static bool sg_compare ( tjob * tinfo ) {
+
+	tdata * min_block, * max_block, * block_src = list_first_entry(&tinfo->data, tdata, elem);
+	tdata * block_dst = block_src;
+	unsigned int max_size, min_size, i = 0, j = 0;
+	unsigned long long * max_array, * min_array;
+	bool passed = true;
+	
+    while (!block_dst->dst_dma)
+		block_dst = list_next_entry(block_dst, elem);
+		
+    if (tinfo->isize > tinfo->osize) {
+
+		min_block = block_src;
+		max_block = block_dst;
+		
+		max_size = tinfo->isize / sizeof(unsigned long long);
+		min_size = tinfo->osize / sizeof(unsigned long long);
+
+		min_array = min_block->output;
+		max_array = max_block->input;
+		
+	} else {
+		
+		min_block = block_dst;
+		max_block = block_src;
+		
+		max_size = tinfo->osize / sizeof(unsigned long long);
+		min_size = tinfo->isize / sizeof(unsigned long long);
+
+		min_array = min_block->input;
+		max_array = max_block->output;
+	}
+
+	while ((max_block || min_block) && passed) {
+		
+		while (i < max_size && j < min_size && passed) {
+			passed = (min_array[j] == max_array[i]);
+			i ++;
+			j ++;
+		}
+
+		if (passed) {
+
+			if (i == max_size) {
+
+				max_block = !list_is_last(&max_block->elem, &tinfo->data) ? list_next_entry(max_block, elem) : NULL;
+
+				if (tinfo->isize > tinfo->osize)
+					max_array = max_block->input;
+				else
+					max_array = max_block->output;
+				
+				i = 0;
+					
+			}
+			
+			if (j == min_size) {
+				
+				min_block = !list_is_last(&min_block->elem, &tinfo->data) ? list_next_entry(min_block, elem) : NULL;
+
+				if (tinfo->isize < tinfo->osize)
+					min_array = max_block->input;
+				else
+					min_array = max_block->output;
+				
+				j = 0;
+				
+			}
+		}
+	}
+
+	return passed;
+}
+
 bool check_results ( tjob * tinfo ) {
 	
 	switch ( tinfo->tnum ) {
@@ -516,14 +612,16 @@ bool check_results ( tjob * tinfo ) {
 		case 3:
 			return dvc_vs_dvc(tinfo);
 		}
+	case DMA_SCAT_GATH:
+		return sg_compare(tinfo);
+	case DMA_IRQ:
+		return true;
 	case DMA_MCPY:
 		return array_vs_array(tinfo);
 	case DMA_MSET:
 		return memset_validation(tinfo);
-	case DMA_IRQ:
-		return true;
 	default:
-		pr_warn("%u >> Check results not implemented for test %u\n", tinfo->parent->id, tinfo->tnum);
+		pr_warn("%u >> %s: Unknown test %u\n", tinfo->parent->id, __func__, tinfo->tnum);
 		return false;
 	}	
 }
@@ -646,6 +744,42 @@ static bool perform_jobs ( int node_id ) {
 		pr_err("Node %d not existent.\n", node_id);
 	
 	return ret;
+}
+
+/* Pause dma channel on a given node */
+static bool pause_chan ( int node_id ) {
+
+	telem * node = get_node_by_id ( node_id );
+	enum dma_status ret = DMA_ERROR;
+
+	if (node) {
+		
+	    if (node->chan)
+			ret = dmaengine_pause (node->chan);
+		else
+			pr_warn("%d >> Node %d does not have a channel reserved.\n", node_id, node_id);
+	} else
+		pr_err("Node %d not existent.\n", node_id);
+	
+	return ret == DMA_PAUSED;
+}
+
+/* Resume dma channel on a given node */
+static bool resume_chan ( int node_id ) {
+
+	telem * node = get_node_by_id ( node_id );
+	enum dma_status ret = DMA_ERROR;
+
+	if (node) {
+		
+		if (node->chan)
+			ret = dmaengine_resume (node->chan); 
+		else
+			pr_warn("%d >> Node %d does not have a channel reserved.\n", node_id, node_id);
+	} else
+		pr_err("Node %d not existent.\n", node_id);
+	
+	return ret == DMA_SUCCESS || ret == DMA_IN_PROGRESS;
 }
 
 static bool issue_transaction ( tjob * tinfo ) {
@@ -847,7 +981,7 @@ static int run_test (void * node_ptr) {
 	telem * node = (telem *) node_ptr;
     command * cmd, * temp;
 	int ret = true;
-	
+
 	list_for_each_entry_safe (cmd, temp, &node->cmd_list, elem) {
 
 		pr_info("%u >> Running command %u (args: %d).\n", node->id, cmd->cmd, cmd->args);
@@ -999,6 +1133,32 @@ static int run_test (void * node_ptr) {
 							ret = ret && terminate_node ( i );
 					} else
 						ret = terminate_node ( cmd->args );
+				
+				}
+				break;;
+				
+			case PAUSE_CHAN:
+				{
+					int i;
+				
+					if (cmd->args < 0) {
+						for (i = 0; i < max_chann; i++)
+							ret = ret && pause_chan ( i );
+					} else
+						ret = pause_chan ( cmd->args );
+				
+				}
+				break;;
+
+			case RESUME_CHAN:
+				{
+					int i;
+				
+					if (cmd->args < 0) {
+						for (i = 0; i < max_chann; i++)
+							ret = ret && resume_chan ( i );
+					} else
+						ret = resume_chan ( cmd->args );
 				
 				}
 				break;;
