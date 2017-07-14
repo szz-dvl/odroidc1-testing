@@ -24,3 +24,5 @@ sudo insmod dmatest.ko max_chann=${chann}
 dmesg
 
 sudo mknod /dev/${device} c $(sudo cat /sys/kernel/debug/dmatest/major) 1
+
+sudo journalctl --flush

@@ -532,9 +532,9 @@ static bool sg_compare ( tjob * tinfo ) {
 		min_block = block_src;
 		max_block = block_dst;
 		
-		max_size = tinfo->isize / sizeof(unsigned long long);
 		min_size = tinfo->osize / sizeof(unsigned long long);
-
+		max_size = tinfo->isize / sizeof(unsigned long long);
+		
 		min_array = min_block->output;
 		max_array = max_block->input;
 		
@@ -542,9 +542,9 @@ static bool sg_compare ( tjob * tinfo ) {
 		
 		min_block = block_dst;
 		max_block = block_src;
-		
-		max_size = tinfo->osize / sizeof(unsigned long long);
+
 		min_size = tinfo->isize / sizeof(unsigned long long);
+		max_size = tinfo->osize / sizeof(unsigned long long);
 
 		min_array = min_block->input;
 		max_array = max_block->output;
@@ -552,38 +552,39 @@ static bool sg_compare ( tjob * tinfo ) {
 
 	while ((max_block || min_block) && passed) {
 		
-		while (i < max_size && j < min_size && passed) {
-			passed = (min_array[j] == max_array[i]);
-			i ++;
-			j ++;
-		}
-
+		while (i < max_size && j < min_size && passed)
+			passed = (min_array[++j] == max_array[++i]);
+		
 		if (passed) {
 
 			if (i == max_size) {
-
-				max_block = !list_is_last(&max_block->elem, &tinfo->data) ? list_next_entry(max_block, elem) : NULL;
-
-				if (tinfo->isize > tinfo->osize)
-					max_array = max_block->input;
-				else
-					max_array = max_block->output;
 				
-				i = 0;
+				max_block = !list_is_last(&max_block->elem, &tinfo->data) ? list_next_entry(max_block, elem) : NULL;
+				
+				if (max_block) {
 					
+					if (tinfo->isize > tinfo->osize)
+						max_array = max_block->input;
+					else
+						max_array = max_block->output;
+					
+					i = 0;
+				}
 			}
 			
 			if (j == min_size) {
 				
 				min_block = !list_is_last(&min_block->elem, &tinfo->data) ? list_next_entry(min_block, elem) : NULL;
-
-				if (tinfo->isize < tinfo->osize)
-					min_array = max_block->input;
-				else
-					min_array = max_block->output;
 				
-				j = 0;
-				
+				if (min_block) {
+					
+					if (tinfo->isize < tinfo->osize)
+						min_array = max_block->input;
+					else
+						min_array = max_block->output;
+					
+					j = 0;
+				}	
 			}
 		}
 	}
