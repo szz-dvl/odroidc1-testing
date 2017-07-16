@@ -13,15 +13,21 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 	tjob * tinfo = init_job(node, DMA_SCAT_GATH, 0);
 
 	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));   
-	prandom_seed(dvc_value);
 	
-	while (multi <= 1)
-		multi = prandom_u32() % periods; /* get_random_bytes ignores reminder (%) here (overflow?)*/
+	while (multi <= 1) {
+		
+		get_random_bytes_arch(&multi, 4);
+	    multi %= periods;
+		
+	}
 	
 	if (same_shape) {
 
-		while (!tinfo->amount)
-			tinfo->amount = prandom_u32() % periods; /* get_random_bytes crahes pagination requests here. 8-|*/
+		while (!tinfo->amount) {
+			
+			get_random_bytes_arch(&tinfo->amount, 4);
+			tinfo->amount %= periods;
+		}
 		
 		dst_amount = src_amount = tinfo->amount;
 		
@@ -30,7 +36,7 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 	} else if (direction) {
 		
 		while (!src_amount || (src_amount % 2)) {
-			get_random_bytes(&src_amount, 32);
+			get_random_bytes_arch(&src_amount, 4);
 			src_amount %= periods;
 		}
 		
@@ -38,7 +44,8 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 
 		while (tinfo->osize * src_amount != tinfo->isize * dst_amount) {
 
-			multi = prandom_u32() % periods;
+			get_random_bytes_arch(&multi, 4);
+			multi %= periods;
 
 			if (multi > 1) {
 				
@@ -53,7 +60,7 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 	} else {
 
 		while (!dst_amount || (dst_amount % 2)) {
-			get_random_bytes(&dst_amount, 32);
+			get_random_bytes_arch(&dst_amount, 4);
 			dst_amount %= periods;
 		}
 		
@@ -61,8 +68,9 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 
 		while (tinfo->osize * src_amount != tinfo->isize * dst_amount) {
 
-			multi = prandom_u32() % periods;
-
+			get_random_bytes_arch(&multi, 4);
+			multi %= periods;
+		
 			if (multi > 1) {
 				
 				tinfo->osize = tinfo->isize * multi;
