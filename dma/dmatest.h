@@ -135,7 +135,7 @@ bool do_cyclic_mem_to_mem ( telem * node );
 bool do_dma_cyclic ( telem * node );
 
 /* DMA_SG: */
-bool do_dma_scatter_gather ( telem * node );
+bool do_dma_scatter_gather ( telem * node, bool same_shape );
 
 /* DMA_MemCopy: */
 bool do_dma_memcpy ( telem * node );
@@ -144,13 +144,12 @@ bool do_dma_memcpy ( telem * node );
 bool do_dma_memset ( telem * node );
 
 /* DMA_Interrupt: */
-bool do_dma_interrupt ( telem * node ); /* Don't know how to do this ...*/
+bool do_dma_interrupt ( telem * node ); 
 
 /* Parameters ofered in debugfs */
 extern unsigned int dvc_value, verbose, periods;
-extern bool async_mode, mode_2d;
+extern u32 async_mode, mode_2d, direction;
 extern unsigned long long glob_size;
-extern bool direction;
 
 /* Shared vars */
 extern char hr_size [32];

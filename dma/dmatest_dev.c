@@ -64,12 +64,12 @@ char hr_size [32] = "4K";
 unsigned int dvc_value = 100;
 unsigned long long glob_size = 4 * 1024;
 unsigned int verbose = 0;
-unsigned int periods = 1; /* For DMA_CYCLIC */
+unsigned int periods = 5; /* For DMA_CYCLIC */
 
-bool async_mode = true;
-bool mode_2d = false;
-bool direction = true;
-static bool batch_mode = false;
+u32 async_mode = true;
+u32 mode_2d = false;
+u32 direction = true;
+static u32 batch_mode = false;
 
 struct dentry *root;
 
@@ -96,15 +96,19 @@ static bool register_debugfs (void) {
 	d = debugfs_create_u32("dvc_value", S_IRUGO | S_IWUSR, root, (u32 *)&dvc_value);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
-	
-	d = debugfs_create_u32("verbose", S_IRUGO | S_IWUSR, root, (u32 *)&verbose);
-	if (IS_ERR_OR_NULL(d))
-	    goto err_reg;
 
 	d = debugfs_create_u32("periods", S_IRUGO | S_IWUSR, root, (u32 *)&periods);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
-	
+
+	d = debugfs_create_u32("verbose", S_IRUGO | S_IWUSR, root, (u32 *)&verbose);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_bool("direction", S_IRUGO | S_IWUSR, root, (u32 *)&direction);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
 	d = debugfs_create_bool("async_mode", S_IRUGO | S_IWUSR, root, (u32 *)&async_mode);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
@@ -117,10 +121,6 @@ static bool register_debugfs (void) {
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
-	d = debugfs_create_bool("direction", S_IRUGO | S_IWUSR, root, (u32 *)&direction);
-	if (IS_ERR_OR_NULL(d))
-	    goto err_reg;
-
 	
 	return true;
 	
@@ -361,6 +361,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 				
 			}
 
+			INIT_LIST_HEAD(&cmd->elem);
 			cmd->cmd = com;
 			cmd->args = args;
 				
@@ -523,12 +524,9 @@ static bool sg_compare ( tjob * tinfo ) {
 	unsigned int max_size, min_size, i = 0, j = 0;
 	unsigned long long * max_array, * min_array;
 	bool passed = true;
-	
-    while (!block_dst->dst_dma)
-		block_dst = list_next_entry(block_dst, elem);
-		
+			
     if (tinfo->isize > tinfo->osize) {
-
+		
 		min_block = block_src;
 		max_block = block_dst;
 		
@@ -542,23 +540,29 @@ static bool sg_compare ( tjob * tinfo ) {
 		
 		min_block = block_dst;
 		max_block = block_src;
-
+		
 		min_size = tinfo->isize / sizeof(unsigned long long);
 		max_size = tinfo->osize / sizeof(unsigned long long);
-
+		
 		min_array = min_block->input;
 		max_array = max_block->output;
 	}
 
-	while ((max_block || min_block) && passed) {
+	while ((max_array || min_array) && passed) {
 		
-		while (i < max_size && j < min_size && passed)
-			passed = (min_array[++j] == max_array[++i]);
+		while (i < max_size && j < min_size && passed)  {
+
+			if (verbose >= 3)
+				pr_info("%u >> %llu - %llu \n", tinfo->parent->id, min_array[j], max_array[i]);
+			
+			passed = (min_array[j++] == max_array[i++]);
+			
+		}
 		
 		if (passed) {
 
 			if (i == max_size) {
-				
+
 				max_block = !list_is_last(&max_block->elem, &tinfo->data) ? list_next_entry(max_block, elem) : NULL;
 				
 				if (max_block) {
@@ -569,7 +573,9 @@ static bool sg_compare ( tjob * tinfo ) {
 						max_array = max_block->output;
 					
 					i = 0;
-				}
+					
+				} else
+					max_array = NULL;
 			}
 			
 			if (j == min_size) {
@@ -579,14 +585,16 @@ static bool sg_compare ( tjob * tinfo ) {
 				if (min_block) {
 					
 					if (tinfo->isize < tinfo->osize)
-						min_array = max_block->input;
+						min_array = min_block->input;
 					else
-						min_array = max_block->output;
+						min_array = min_block->output;
 					
 					j = 0;
-				}	
+					
+				} else
+					min_array = NULL;	
 			}
-		}
+		} 
 	}
 
 	return passed;
@@ -855,7 +863,7 @@ static bool finish_transaction ( void * args ) {
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
-		if (to != DMA_ERROR) {
+		if (to != DMA_ERROR && tinfo->tnum != DMA_SCAT_GATH) {
 			
 			if (block->dst_dma && verbose >= 3)	
 				print_block(tinfo, block, j);
@@ -903,7 +911,10 @@ bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize) {
 	for (i = 0; i < amount; i++) {
 		
 	    block = (tdata *) kzalloc(sizeof(tdata), GFP_KERNEL);	
-
+		
+		if (!block)
+			goto map_error;
+		
 		if (isize) {
 			
 			block->input = dma_alloc_coherent(tinfo->parent->chan->device->dev,
@@ -915,6 +926,7 @@ bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize) {
 				goto map_error;
 			else
 				memset(block->input, 0, isize);
+		   
 		}
 		
 		if (osize) {
@@ -926,9 +938,11 @@ bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize) {
 			
 			if (dma_mapping_error(tinfo->parent->chan->device->dev, block->src_dma)) 
 				goto map_error;
+
 		} 
 		
 		list_add_tail(&block->elem, &tinfo->data);
+		
 	}
 	
 	return true;
@@ -963,6 +977,7 @@ tjob * init_job (telem * node, uint test, int subtest) {
 	} 
 	
 	INIT_LIST_HEAD(&job->data);
+	INIT_LIST_HEAD(&job->elem);
 	
 	job->parent = node;
 	job->tnum = test;
@@ -1073,7 +1088,7 @@ static int run_test (void * node_ptr) {
 				
 			case DMA_SCAT_GATH:
 				{ 
-					ret = do_dma_scatter_gather ( node );
+					ret = do_dma_scatter_gather ( node, cmd->args >= 0 );
 				}
 				break;;
 				
@@ -1103,7 +1118,7 @@ static int run_test (void * node_ptr) {
 						do_dma_cyclic ( node ) &&
 						do_dma_interrupt ( node ) &&
 						do_dma_ileaved ( node ) &&
-						do_dma_scatter_gather ( node ) &&
+						do_dma_scatter_gather ( node, cmd->args >= 0 ) &&
 						do_dma_memcpy ( node ) &&
 						do_dma_memset ( node );	
 				}

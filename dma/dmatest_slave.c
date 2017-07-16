@@ -54,7 +54,9 @@ static bool do_slave_dev_to_mem_mem_to_dev ( telem * node, bool dire ) {
 	
 	if (tinfo->amount != 1) {
 		
-	    sg_alloc_table(&sgt, tinfo->amount, GFP_KERNEL);
+	    if(sg_alloc_table(&sgt, tinfo->amount, GFP_KERNEL))
+			goto cfg_error;
+		
 		sgl = sgt.sgl;
 		block = temp;
 		temp = list_next_entry(block, elem);

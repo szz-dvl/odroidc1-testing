@@ -4,33 +4,24 @@ if [ ! -c /dev/dmatest ]; then
 	./dotestdev
 fi
 
-value=$(( ( RANDOM % 32 )  + 1 ))
-verbose=1
-size="4K"
-periods=1
-async="Y"
-mode2d="N"
-batch="N"
-direction="Y"
-def=""
-
 # read the options
-TEMP=`getopt -o n:s:p:a::b::v:2::d::o --long value:,size:,periods:,async::,batch::,verbose:,2dmode::,direction::,original -n 'sendpar' -- "$@"`
+TEMP=`getopt -o n:s:p:v:a::d::b::m:: --long value:,size:,periods:,verbose:,async::,direction::,batch::,mode2d:: -n 'sendpar' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
+	#echo "parsing: ($1,$2)"
     case "$1" in
 		-n | --value)
-			value="$2" ; shift 2 ;
-			echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value &> /dev/null ;;
-
+			value="$2"; shift 2 ;;
+		
 		-s | --size)
-			size="$2" ; shift 2 ;
-			echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/glob_size &> /dev/null ;;
-
+			size="$2"; shift 2 ;;
+		
 		-p | --periods)
-			periods="$2" ; shift 2 ;
-			echo -n "$periods" | sudo tee /sys/kernel/debug/dmatest/periods &> /dev/null ;;
+			periods="$2"; shift 2 ;;
+		
+		-v | --verbose)
+			verbose="$2"; shift 2 ;;
 		
 		-a | --async)
 
@@ -45,25 +36,23 @@ while true ; do
 					async="Y"
 				fi
 			fi
-			
-			echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
-			shift 2;;
+
+			shift 2 ;;
 
 		-d | --direction)
 
 			if [ ! -z "$2" ]; then
-			    direction="$2"
+				dire="$2"
 			else
 				old=$(sudo cat /sys/kernel/debug/dmatest/direction)
 				
 				if [ "$old" == "Y" ]; then
-					direction="N"
+					dire="N"
 				else
-				    direction="Y"
+				    dire="Y"
 				fi
 			fi
-			
-			echo -n "$direction" | sudo tee /sys/kernel/debug/dmatest/direction &> /dev/null
+
 			shift 2;;
 		
 		-b | --batch)
@@ -79,11 +68,10 @@ while true ; do
 				    batch="Y"
 				fi
 			fi
-			
-			echo -n "$batch" | sudo tee /sys/kernel/debug/dmatest/batch_mode &> /dev/null
-			shift 2;;
+
+			shift 2 ;;
 		
-		-2 | --2dmode)
+		-m | --mode2d)
 			
 			if [ ! -z "$2" ]; then
 			    mode2d="$2"
@@ -97,31 +85,41 @@ while true ; do
 				fi
 			fi
 			
-			echo -n "$mode2d" | sudo tee /sys/kernel/debug/dmatest/2d_mode &> /dev/null
-			shift 2;;
-
-		-v | --verbose)
-			verbose="$2" ; shift 2 ;
-			echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null ;;
-
-		-o | --original)
-			def="Y" ; shift ;;
-		
-		--) shift ; break ;;
-		*) echo "Error parsing opts, aborting." ; exit 1 ;;
+			shift 2 ;;	 
+			
+		--) shift 2; break ;;
+		*) echo "Error parsing opts ($1,$2) aborting." ; exit 1 ;;
 	esac
 done
 
-if [ ! -z "$def" ]; then
-
-	echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value &> /dev/null
-	echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/glob_size &> /dev/null
-	echo -n "$periods" | sudo tee /sys/kernel/debug/dmatest/periods &> /dev/null
-	echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
-	echo -n "$mode2d" | sudo tee /sys/kernel/debug/dmatest/2d_mode &> /dev/null
-	echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null
-	echo -n "$batch" | sudo tee /sys/kernel/debug/dmatest/batch_mode &> /dev/null
-	echo -n "$direction" | sudo tee /sys/kernel/debug/dmatest/direction &> /dev/null
-	
+if [ ! -z $value ]; then
+   	echo -n "$value" | sudo tee /sys/kernel/debug/dmatest/dvc_value &> /dev/null
 fi
 
+if [ ! -z $periods ]; then
+	echo -n "$periods" | sudo tee /sys/kernel/debug/dmatest/periods &> /dev/null
+fi
+
+if [ ! -z $size ]; then
+	echo -n "$size" | sudo tee /sys/kernel/debug/dmatest/glob_size &> /dev/null
+fi
+
+if [ ! -z $async ]; then
+	echo -n "$async" | sudo tee /sys/kernel/debug/dmatest/async_mode &> /dev/null
+fi
+
+if [ ! -z $mode2d ]; then
+	echo -n "$mode2d" | sudo tee /sys/kernel/debug/dmatest/2d_mode &> /dev/null
+fi
+
+if [ ! -z $verbose ]; then
+	echo -n "$verbose" | sudo tee /sys/kernel/debug/dmatest/verbose &> /dev/null
+fi
+
+if [ ! -z $batch ]; then
+   	echo -n "$batch" | sudo tee /sys/kernel/debug/dmatest/batch_mode &> /dev/null
+fi
+
+if [ ! -z $dire ]; then
+	echo -n "$dire" | sudo tee /sys/kernel/debug/dmatest/direction &> /dev/null
+fi

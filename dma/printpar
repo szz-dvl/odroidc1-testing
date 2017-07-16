@@ -4,11 +4,4 @@ if [ ! -c /dev/dmatest ]; then
 	./dotestdev
 fi
 
-echo "value: $(sudo cat /sys/kernel/debug/dmatest/dvc_value)"
-echo "size: $(sudo cat /sys/kernel/debug/dmatest/glob_size)"
-echo "periods: $(sudo cat /sys/kernel/debug/dmatest/periods)"
-echo "2d_mode: $(sudo cat /sys/kernel/debug/dmatest/2d_mode)"
-echo "async: $(sudo cat /sys/kernel/debug/dmatest/async_mode)"
-echo "batch: $(sudo cat /sys/kernel/debug/dmatest/batch_mode)"
-echo "direction: $(sudo cat /sys/kernel/debug/dmatest/direction)"
-echo "verbose: $(sudo cat /sys/kernel/debug/dmatest/verbose)"
+while read line; do echo "$line: $(sudo cat /sys/kernel/debug/dmatest/$line)"; done< <(sudo ls -1 /sys/kernel/debug/dmatest/)

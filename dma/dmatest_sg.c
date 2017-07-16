@@ -1,89 +1,150 @@
 #include "dmatest.h"
 
-bool do_dma_scatter_gather ( telem * node )
+bool do_dma_scatter_gather ( telem * node, bool same_shape )
 {
 	unsigned long flags = 0;
 	tdata * block, * temp;
-    //struct sg_table src_sgt;
-	struct scatterlist src_sgl;
-	//struct sg_table dst_sgt;
-	struct scatterlist dst_sgl;
+    struct sg_table src_sgt;
+	struct sg_table dst_sgt;
 	struct scatterlist * src_aux, * dst_aux;
-	uint src_amount, dst_amount;
+	uint src_amount = 0, dst_amount = 0, multi = 1, min_amount, max_amount;
+	dma_addr_t last_src = 0, last_dst = 0;
 	int j, i;
-	tjob * tinfo = init_job(node, DMA_SG, 0);
+	tjob * tinfo = init_job(node, DMA_SCAT_GATH, 0);
 
-	get_random_bytes(&src_amount, 32);
-	src_amount %= periods;
+	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));   
+	prandom_seed(dvc_value);
 	
-	get_random_bytes(&dst_amount, 32);
-	dst_amount %= periods;
+	while (multi <= 1)
+		multi = prandom_u32() % periods; /* get_random_bytes ignores reminder (%) here (overflow?)*/
 	
-	tinfo->real_size = ALIGN(glob_size, sizeof(unsigned long long));
-	tinfo->amount = max(src_amount, dst_amount);
-	
-	tinfo->isize = DIV_ROUND_UP_ULL(tinfo->real_size, dst_amount);
-	tinfo->osize = DIV_ROUND_UP_ULL(tinfo->real_size, src_amount);
+	if (same_shape) {
+
+		while (!tinfo->amount)
+			tinfo->amount = prandom_u32() % periods; /* get_random_bytes crahes pagination requests here. 8-|*/
+		
+		dst_amount = src_amount = tinfo->amount;
+		
+		tinfo->osize = tinfo->isize = ALIGN(DIV_ROUND_UP_ULL(tinfo->real_size, tinfo->amount), sizeof(unsigned long long));
+		
+	} else if (direction) {
+		
+		while (!src_amount || (src_amount % 2)) {
+			get_random_bytes(&src_amount, 32);
+			src_amount %= periods;
+		}
+		
+		tinfo->osize = ALIGN(DIV_ROUND_UP_ULL(tinfo->real_size, src_amount), sizeof(unsigned long long));
+
+		while (tinfo->osize * src_amount != tinfo->isize * dst_amount) {
+
+			multi = prandom_u32() % periods;
+
+			if (multi > 1) {
+				
+				tinfo->isize = tinfo->osize * multi;
+			    dst_amount = ((tinfo->osize * src_amount) / tinfo->isize);
+				
+			}
+		}
+
+		tinfo->amount = dst_amount;
+		
+	} else {
+
+		while (!dst_amount || (dst_amount % 2)) {
+			get_random_bytes(&dst_amount, 32);
+			dst_amount %= periods;
+		}
+		
+		tinfo->isize = ALIGN(DIV_ROUND_UP_ULL(tinfo->real_size, dst_amount), sizeof(unsigned long long));
+
+		while (tinfo->osize * src_amount != tinfo->isize * dst_amount) {
+
+			multi = prandom_u32() % periods;
+
+			if (multi > 1) {
+				
+				tinfo->osize = tinfo->isize * multi;
+				src_amount = ((tinfo->isize * dst_amount) / tinfo->osize);
+			}
+		}
+		
+		tinfo->amount = src_amount;
+	}
 	
 	tinfo->tname = __func__;
-	
-	pr_info("%u >> Entering %s, size: %s, src_amount: %u, dst_amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, src_amount, dst_amount);
 
-
+	min_amount = min(src_amount, dst_amount);
+	max_amount = max(src_amount, dst_amount);
 	
-	if ( !allocate_arrays (tinfo, src_amount, 0, tinfo->osize) )
+	pr_info("%u >> Entering %s, size: %s, src_amount: %u * %u, dst_amount: %u * %u\n", tinfo->parent->id, tinfo->tname, hr_size, src_amount, tinfo->osize, dst_amount, tinfo->isize);
+	
+	if ( !allocate_arrays (tinfo, min_amount, tinfo->isize, tinfo->osize) )
 	    return false;
-	else {
+	else if (min_amount != max_amount) {
 		
-		if ( !allocate_arrays (tinfo, dst_amount, tinfo->isize, 0) )
+		if ( !allocate_arrays (tinfo, max_amount - min_amount, max_amount == dst_amount ? tinfo->isize : 0, max_amount == src_amount ? tinfo->osize : 0) )
 			goto cfg_error;	
 		else
 			pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
-	}
+	} else
+		pr_info("%u >> Succefully mapped dst and src dma addresses.\n", tinfo->parent->id);
 	
-	sg_init_table(&src_sgl, src_amount);
-	sg_init_table(&dst_sgl, dst_amount);
-	temp = block = list_first_entry(&tinfo->data, tdata, elem);
+	if (sg_alloc_table(&src_sgt, src_amount, GFP_KERNEL))
+		goto cfg_error;
+	
+	if (sg_alloc_table(&dst_sgt, dst_amount, GFP_KERNEL))
+		goto cfg_error;
+	
+    block = list_first_entry(&tinfo->data, tdata, elem);
 
-	while (!temp->dst_dma)
-		temp = list_next_entry(block, elem);
-	
 	j = 0;
-	src_aux = &src_sgl;
-	dst_aux = &dst_sgl;
-	
-	while (src_aux || dst_aux) {
+	src_aux = src_sgt.sgl;
+	dst_aux = dst_sgt.sgl;
 
+	while (block) {
+				
 		if (src_aux) {
+			
 			for (i = 0; i < (tinfo->osize / sizeof(unsigned long long)); i++)
 				block->output[i] = dvc_value + i + j;
-		}
-		
-		if (src_aux) {
+			
 			sg_dma_address(src_aux) = block->src_dma;
 			sg_set_buf(src_aux, block->output, tinfo->osize);
+
 		}
 
 		if (dst_aux) {
-			sg_dma_address(dst_aux) = temp->dst_dma;
-			sg_set_buf(dst_aux, temp->input, tinfo->isize);
+	
+			sg_dma_address(dst_aux) = block->dst_dma;
+			sg_set_buf(dst_aux, block->input, tinfo->isize);
+			
 		}
-		
+ 
 		if (verbose >= 2)
-			pr_info("%u >> Block %d (0x%08x -> 0x%08x): size_src->%u, size_dst->%u\n", tinfo->parent->id, j, block->src_dma, block->dst_dma, sg_dma_len(src_aux), sg_dma_len(dst_aux));
+			pr_info("%u >> Block %3d (0x%08x -> 0x%08x), icg_src = %4d, icg_dst = %4d\n", tinfo->parent->id, j, block->src_dma, block->dst_dma,
+					last_src && src_aux ? (sg_dma_address(src_aux) - last_src) : -1, last_dst && dst_aux ? (sg_dma_address(dst_aux) - last_dst) : -1);
+
+		last_dst = dst_aux ? sg_dma_address(dst_aux) + sg_dma_len(dst_aux) : 0;	
+		dst_aux = dst_aux ? sg_next(dst_aux) : NULL;
+
+		last_src = src_aux ? sg_dma_address(src_aux) + sg_dma_len(src_aux) : 0;
+		src_aux = src_aux ? sg_next(src_aux) : NULL;
 		
-		src_aux = sg_next(src_aux);
-		dst_aux = sg_next(dst_aux);
-		block = list_next_entry(block, elem);
-		temp = list_next_entry(temp, elem);  
+		block = !list_is_last(&block->elem, &tinfo->data) ? list_next_entry(block, elem) : NULL;
+		
 		j++;
 	}
 
 	tinfo->tx_desc = dmaengine_prep_dma_sg(tinfo->parent->chan,
-										   &src_sgl, src_amount,
-										   &dst_sgl, dst_amount,
-										   flags);
-	
+										   dst_sgt.sgl, dst_amount,
+										   src_sgt.sgl, src_amount,
+										   flags);	
+	sg_free_table(&src_sgt);
+	sg_free_table(&dst_sgt);
+
+
 	if (!tinfo->tx_desc)
 		goto cfg_error;
 	
@@ -110,31 +171,3 @@ bool do_dma_scatter_gather ( telem * node )
 	
 	return false;
 };
-
-
-/* 
-   Maybe it would be nice to split this one to have dedicated tests 
-   for asimetric transactions with sgents of diferents sizes for src and dst 
-   such as:
-
-   src: |====================| |==========================|
-   dst: |=========| |=====| |========| |==================|
-   
-   src: |=========| |=====| |========| |==================|
-   dst: |====================| |==========================| 
-
-   [ . . . ]
-   
-   Or those achivable with interleaved:
-
-   src: |===================================================|
-   dst: |======| |======| |======| |======| |======| |======|
-   
-   or viceversa.
-
-   etc, etc.
-
-   Whatever the final implementation became we need to have in mind that there are 
-   several scenarios here.
-   
-*/
