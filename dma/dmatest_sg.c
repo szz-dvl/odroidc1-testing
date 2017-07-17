@@ -1,5 +1,23 @@
 #include "dmatest.h"
 
+static bool is_last_src (tjob * tinfo, tdata * block) {
+
+	if (list_is_last(&block->elem, &tinfo->data)) 
+		return true;
+	else
+		return !list_next_entry(block, elem)->src_dma;
+
+}
+
+static bool is_last_dst (tjob * tinfo, tdata * block) {
+
+	if (list_is_last(&block->elem, &tinfo->data)) 
+		return true;
+	else
+		return !list_next_entry(block, elem)->dst_dma;
+
+}
+
 bool do_dma_scatter_gather ( telem * node, bool same_shape )
 {
 	unsigned long flags = 0;
@@ -8,7 +26,7 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 	struct sg_table dst_sgt;
 	struct scatterlist * src_aux, * dst_aux;
 	uint src_amount = 0, dst_amount = 0, multi = 1, min_amount, max_amount;
-	dma_addr_t last_src = 0, last_dst = 0;
+    int last_src = 0, last_dst = 0;
 	int j, i;
 	tjob * tinfo = init_job(node, DMA_SCAT_GATH, 0);
 
@@ -32,7 +50,9 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 		dst_amount = src_amount = tinfo->amount;
 		
 		tinfo->osize = tinfo->isize = ALIGN(DIV_ROUND_UP_ULL(tinfo->real_size, tinfo->amount), sizeof(unsigned long long));
-		
+
+		tinfo->real_size = tinfo->osize * tinfo->amount;
+			
 	} else if (direction) {
 		
 		while (!src_amount || (src_amount % 2)) {
@@ -40,8 +60,9 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 			src_amount %= periods;
 		}
 		
-		tinfo->osize = ALIGN(DIV_ROUND_UP_ULL(tinfo->real_size, src_amount), sizeof(unsigned long long));
-
+	    tinfo->osize = ALIGN(DIV_ROUND_UP_ULL(tinfo->real_size, src_amount), sizeof(unsigned long long));
+		tinfo->real_size = tinfo->osize * src_amount;
+		
 		while (tinfo->osize * src_amount != tinfo->isize * dst_amount) {
 
 			get_random_bytes_arch(&multi, 4);
@@ -65,7 +86,8 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 		}
 		
 		tinfo->isize = ALIGN(DIV_ROUND_UP_ULL(tinfo->real_size, dst_amount), sizeof(unsigned long long));
-
+		tinfo->real_size = tinfo->isize * dst_amount;
+		
 		while (tinfo->osize * src_amount != tinfo->isize * dst_amount) {
 
 			get_random_bytes_arch(&multi, 4);
@@ -82,7 +104,7 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 	}
 	
 	tinfo->tname = __func__;
-
+	
 	min_amount = min(src_amount, dst_amount);
 	max_amount = max(src_amount, dst_amount);
 	
@@ -121,24 +143,26 @@ bool do_dma_scatter_gather ( telem * node, bool same_shape )
 			sg_dma_address(src_aux) = block->src_dma;
 			sg_set_buf(src_aux, block->output, tinfo->osize);
 
-		}
+			last_src = !is_last_src(tinfo, block) ? list_next_entry(block, elem)->src_dma - (sg_dma_address(src_aux) + sg_dma_len(src_aux)) : -1;
+			src_aux = sg_next(src_aux);
+
+		} else
+			last_src = -1;
 
 		if (dst_aux) {
 	
 			sg_dma_address(dst_aux) = block->dst_dma;
 			sg_set_buf(dst_aux, block->input, tinfo->isize);
+
+			last_dst = !is_last_dst(tinfo, block) ? list_next_entry(block, elem)->dst_dma - (sg_dma_address(dst_aux) + sg_dma_len(dst_aux)) : -1;
+			dst_aux = sg_next(dst_aux);
 			
-		}
+		} else
+			last_dst = -1;
  
 		if (verbose >= 2)
-			pr_info("%u >> Block %3d (0x%08x -> 0x%08x), icg_src = %4d, icg_dst = %4d\n", tinfo->parent->id, j, block->src_dma, block->dst_dma,
-					last_src && src_aux ? (sg_dma_address(src_aux) - last_src) : -1, last_dst && dst_aux ? (sg_dma_address(dst_aux) - last_dst) : -1);
+			pr_info("%u >> Block %3d (0x%08x -> 0x%08x), icg_src = %8d, icg_dst = %8d\n", tinfo->parent->id, j, block->src_dma, block->dst_dma, last_src, last_dst);
 
-		last_dst = dst_aux ? sg_dma_address(dst_aux) + sg_dma_len(dst_aux) : 0;	
-		dst_aux = dst_aux ? sg_next(dst_aux) : NULL;
-
-		last_src = src_aux ? sg_dma_address(src_aux) + sg_dma_len(src_aux) : 0;
-		src_aux = src_aux ? sg_next(src_aux) : NULL;
 		
 		block = !list_is_last(&block->elem, &tinfo->data) ? list_next_entry(block, elem) : NULL;
 		
