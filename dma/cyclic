@@ -1,7 +1,7 @@
 #!/bin/bash
 
 size="256K"
-periods=10
+periods=4
 limit=""
 paused=""
 ini_t=0

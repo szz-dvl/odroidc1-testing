@@ -417,9 +417,10 @@ static bool memset_validation ( tjob * tinfo ) {
 	bool passed = true;
 	uint asize = tinfo->isize / sizeof(int);
 	tdata * block = list_first_entry(&tinfo->data, tdata, elem);
+	int * arr_p = (int *)block->input;
    		
 	for (i = 0; i < asize && passed; i++)
-		passed = (block->input[i] == tinfo->memset_val);
+		passed = (arr_p[i] == tinfo->memset_val);
    
 	return passed;
 }
@@ -635,16 +636,32 @@ bool check_results ( tjob * tinfo ) {
 	}	
 }
 
-static void print_block (tjob * job, tdata * block, int idx) {
+static void print_block_mset (tjob * job, tdata * block, int idx) {
 
-    long long inpt, oupt;
 	uint i;
-    unsigned int elem_size = (job->tnum == DMA_MSET) ? sizeof (int) : sizeof(unsigned long long);
+    unsigned int array_size = (unsigned long)job->real_size / sizeof(int);
+	int * arr_p = (int *)block->input;
 	
 	if (idx >= 0)
 		pr_info("%u >> Block %u [%p - 0x%08x] [%p - 0x%08x]: \n", job->parent->id, idx, block->input, block->dst_dma, block->output, block->src_dma);
 	
-	for (i = 0; i < ((unsigned long)job->real_size / elem_size); i++) {
+	for (i = 0; i < array_size; i++) 
+		pr_info("%u >> %03d: %03d - %03d\n", job->parent->id, i, job->memset_val, arr_p[i]);
+}
+
+static void print_block (tjob * job, tdata * block, int idx) {
+
+    long long inpt, oupt;
+	uint i;
+    unsigned int array_size = (unsigned long)job->real_size / sizeof(unsigned long long);
+
+	if (job->tnum == DMA_MSET) 
+		return print_block_mset (job, block, idx);
+	
+	if (idx >= 0)
+		pr_info("%u >> Block %u [%p - 0x%08x] [%p - 0x%08x]: \n", job->parent->id, idx, block->input, block->dst_dma, block->output, block->src_dma);
+	
+	for (i = 0; i < array_size; i++) {
 
 		oupt = job->tnum == DMA_MSET ? job->memset_val : *block->output;
 		inpt = *block->input;
@@ -662,7 +679,7 @@ static void print_block (tjob * job, tdata * block, int idx) {
 		default:
 			break;
 		}
-		
+
 		pr_info("%u >> %03d: %03llu - %03llu\n", job->parent->id, i, oupt, inpt);
 	}
 }
@@ -812,7 +829,7 @@ bool submit_transaction ( tjob * tinfo ) {
 		return false;
 		
 	} else
-		pr_info("%u >> Got descriptor (%pB)\n", tinfo->parent->id, tinfo->tx_desc);
+		pr_info("%u >> Got descriptor (%p)\n", tinfo->parent->id, tinfo->tx_desc);
 
 	if (tinfo->tnum == DMA_CYCL) {
 
@@ -881,7 +898,7 @@ static bool finish_transaction ( void * args ) {
 		j ++;
 	}
 	
-	if (to != DMA_ERROR && check)
+	if (to != DMA_ERROR && check && tinfo->tnum != DMA_IRQ)
 		pr_info("%u >> Moved %s (%llu Bytes) in %u nanoseconds.\n", tinfo->parent->id, hr_size, tinfo->real_size ? tinfo->real_size : glob_size, jiffies_to_usecs(diff));
 
 	spin_lock(&tinfo->parent->lock);
@@ -1115,7 +1132,7 @@ static int run_test (void * node_ptr) {
 				
 					ret =
 						do_dma_slave_sg ( node ) &&
-						do_dma_cyclic ( node ) &&
+						//do_dma_cyclic ( node ) &&
 						do_dma_interrupt ( node ) &&
 						do_dma_ileaved ( node ) &&
 						do_dma_scatter_gather ( node, cmd->args >= 0 ) &&
