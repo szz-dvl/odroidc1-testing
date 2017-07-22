@@ -4,7 +4,7 @@ if [ ! -c /dev/dmatest ]; then
 	./dotestdev
 fi
 
-implemented="7" #0 2 0,0 0,1 0,2 2,0 2,1 2,2 2,3 3 3,0 4 5 6 #1,0 1,1 1,2 1,3 7
+implemented="7 0 2 0,0 0,1 0,2 2,0 2,1 2,2 2,3 3 3,0 4 5 6" #1,0 1,1 1,2 1,3 7 2,0
 size="256K"
 dire="Y"
 periods=15
@@ -23,7 +23,7 @@ if [ ! -z "$3" ]; then
 fi
 
 
-./sendpar --value 100 --size "$size" --direction="$dire" --periods "$periods" -b
+./sendpar --value 100 --size "$size" --direction="$dire" --periods "$periods" #-b
 
 sudo dmesg --clear
 
@@ -32,7 +32,7 @@ sudo dmesg --clear
 sleep 1
 
 #issue jobs
-./sendcmd 8
+#./sendcmd 8
 
 sleep 5
 

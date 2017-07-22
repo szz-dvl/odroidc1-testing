@@ -48,8 +48,6 @@ typedef struct cmd_grabber {
 
 typedef struct test_data {
 	
-	struct list_head elem;
-	
 	/* DMA config fields */
     dma_addr_t src_dma;
 	dma_addr_t dst_dma;
@@ -57,6 +55,8 @@ typedef struct test_data {
 	/* Data fields */
 	unsigned long long * input;
 	unsigned long long * output;
+
+	struct list_head elem;
 	
 } tdata;
 	

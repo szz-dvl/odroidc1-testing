@@ -110,7 +110,8 @@ static bool do_interleaved_dev_to_mem_mem_to_dev ( telem * node, bool dire )
 };
 
 bool do_interleaved_mem_to_mem ( telem * node ) {
-	
+
+	/* Direction true: fails */
     struct dma_interleaved_template *xt;
 	unsigned long flags = 0;
 	tdata * block, * temp;
@@ -119,13 +120,12 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 	unsigned long array_size;
 	tjob * tinfo = init_job(node, DMA_ILEAVED, 0);
 
-	array_size = mode_2d ? (PAGE_SIZE + (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
+	array_size = mode_2d ? (PAGE_SIZE - (sizeof(unsigned long long) * 4)) : PAGE_SIZE;
 	tinfo->amount = DIV_ROUND_UP_ULL(glob_size, array_size);
 
 	tinfo->tname = __func__;
-
-	if (mode_2d)
-		tinfo->real_size = tinfo->amount * array_size;
+	
+	tinfo->real_size = tinfo->amount * array_size;
 	
 	pr_info("%u >> Entering %s, size: %s, amount: %u\n", tinfo->parent->id, tinfo->tname, hr_size, tinfo->amount);
 	
@@ -168,11 +168,12 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 	}
 	
 	list_for_each_entry (block, &tinfo->data, elem) {
-		
+
 		if (direction) {
 
 			for (i = 0; i < (tinfo->osize / sizeof(unsigned long long)); i++)
-				block->output[i] = dvc_value + i + j; 
+				block->output[i] = dvc_value + i + j;
+		  
 		}
 		
 		xt->sgl[j].size = direction ? tinfo->osize : tinfo->isize ;
@@ -180,9 +181,9 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 			direction ? list_next_entry(block, elem)->src_dma - (block->src_dma + xt->sgl[j].size) :
 			list_next_entry(block, elem)->dst_dma - (block->dst_dma + xt->sgl[j].size) :
 		    last_icg;
-
+		
 		if (verbose >= 2)
-			pr_info("%u >> Block %d (0x%08x -> 0x%08x): size->%u, icg->%u\n", tinfo->parent->id, j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
+			pr_info("%u >> Block %3d (0x%08x -> 0x%08x): size->%u, icg->%u\n", tinfo->parent->id, j, block->src_dma, block->dst_dma, xt->sgl[j].size, xt->sgl[j].icg);
 		
 		last_icg = xt->sgl[j].icg;
 		j++;
@@ -208,7 +209,8 @@ bool do_interleaved_mem_to_mem ( telem * node ) {
 		if (block->dst_dma)
 			dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
 		
-	    dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
+		if (block->src_dma)
+			dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 		
 		list_del(&block->elem);
 		kfree(block);

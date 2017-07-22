@@ -480,9 +480,9 @@ static bool dvc_vs_array ( tjob * tinfo ) {
 static bool array_vs_array ( tjob * tinfo ) {
 
 	unsigned long long * data_container;
-	tdata * block;
+	tdata * block, * tmp;
 	bool passed = true;
-	uint i, asize, j = 0;
+	uint asize, i, j = 0;
 	
 	block = list_first_entry(&tinfo->data, tdata, elem);
 	
@@ -491,20 +491,20 @@ static bool array_vs_array ( tjob * tinfo ) {
 		
 		data_container = block->input;
 		asize = tinfo->osize / sizeof(unsigned long long);
-
+		
 	} else {
 		
 		data_container = block->output;
 		asize = tinfo->isize / sizeof(unsigned long long);
 	}
 	
-	list_for_each_entry(block, &tinfo->data, elem) {
+	list_for_each_entry_safe (block, tmp, &tinfo->data, elem) {
 		
 		for (i = 0; i < asize && passed; i++)
 			passed = (tinfo->isize > tinfo->osize) ? block->output[i] == data_container[j++] : block->input[i] == data_container[j++];
 		
 		if (!passed)
-		    break;
+			break;
 	}
 	
 	return passed;
@@ -663,7 +663,7 @@ static void print_block (tjob * job, tdata * block, int idx) {
 	
 	for (i = 0; i < array_size; i++) {
 
-		oupt = job->tnum == DMA_MSET ? job->memset_val : *block->output;
+		oupt = *block->output;
 		inpt = *block->input;
 		
 		switch (job->subt) {
@@ -696,7 +696,7 @@ static bool terminate_node ( int node_id ) {
 
 		if (node->chan)
 			ret = dmaengine_terminate_all ( node->chan );
-			
+
 		list_for_each_entry_safe (job, temp, &node->jobs, elem) {
 			
 			if (job->tnum == DMA_CYCL) {
@@ -751,11 +751,11 @@ static bool terminate_node ( int node_id ) {
 static bool perform_jobs ( int node_id ) {
 
 	telem * node = get_node_by_id ( node_id );
-	tjob * job;
+	tjob * job, * tmp;
 	bool ret = true;
-
+	
 	if (node) {
-
+		
 		/* 
 		   Only the first call to "dma_async_issue_pending" will have effect here, 
 		   done this way to finish transactions not configured as asyncronous in the
@@ -763,8 +763,8 @@ static bool perform_jobs ( int node_id ) {
 		   
 		*/
 		
-		list_for_each_entry (job, &node->jobs, elem) 
-			ret = ret && issue_transaction ( job ); 
+		list_for_each_entry_safe (job, tmp, &node->jobs, elem) 
+			ret = ret && issue_transaction ( job );
 
 	} else
 		pr_err("Node %d not existent.\n", node_id);
@@ -811,13 +811,14 @@ static bool resume_chan ( int node_id ) {
 static bool issue_transaction ( tjob * tinfo ) {
 
 	tinfo->stime = jiffies;
-	dma_async_issue_pending(tinfo->parent->chan);
 
-	pr_info("%u >> Issued transaction (%d)\n", tinfo->parent->id, tinfo->tx_cookie);
+	pr_info("%u >> Issuing transaction (%d)\n", tinfo->parent->id, tinfo->tx_cookie);
 	
-	if (!tinfo->async) 	
+	if (tinfo->async)
+		dma_async_issue_pending(tinfo->parent->chan);
+	else
 		return finish_transaction ( tinfo );
-	
+
 	return true;
 }
 
@@ -878,18 +879,19 @@ static bool finish_transaction ( void * args ) {
 	else
 		pr_warn("%u >> Data integriry check success for test %u (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->tname);
 	
+	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
 		
 		if (to != DMA_ERROR && tinfo->tnum != DMA_SCAT_GATH) {
 			
-			if (block->dst_dma && verbose >= 3)	
+			if (block->dst_dma && verbose >= 3)
 				print_block(tinfo, block, j);
 		}
 		
-		if (block->dst_dma)
+		if (block->dst_dma && block->input)
 			dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->isize, block->input, block->dst_dma);
 		
-		if (block->src_dma)
+		if (block->src_dma && block->output)
 			dma_free_coherent(tinfo->parent->chan->device->dev, tinfo->osize, block->output, block->src_dma);
 		
 		list_del(&block->elem);
@@ -902,7 +904,7 @@ static bool finish_transaction ( void * args ) {
 		pr_info("%u >> Moved %s (%llu Bytes) in %u nanoseconds.\n", tinfo->parent->id, hr_size, tinfo->real_size ? tinfo->real_size : glob_size, jiffies_to_usecs(diff));
 
 	spin_lock(&tinfo->parent->lock);
-	
+
 	if (! --tinfo->parent->pending) {
 
 		pr_info("%u >> Releasing dma channel %s.\n", tinfo->parent->id, dma_chan_name(tinfo->parent->chan));
@@ -957,15 +959,14 @@ bool allocate_arrays (tjob * tinfo, uint amount, uint isize, uint osize) {
 				goto map_error;
 
 		} 
-		
+
 		list_add_tail(&block->elem, &tinfo->data);
-		
 	}
-	
+
 	return true;
 	
  map_error:
-    pr_err("%u >> Error mapping DMA addresses.", tinfo->parent->id);
+    pr_err("%u >> Error mapping DMA addresses.\n", tinfo->parent->id);
 	
     list_for_each_entry_safe(block, temp, &tinfo->data, elem) {
 		
