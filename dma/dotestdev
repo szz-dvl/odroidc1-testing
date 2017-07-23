@@ -10,8 +10,8 @@ else
 	chann="$1"
 fi
 
-if [ -c /dev/dmatest ]; then
-	sudo rmmod dmatest
+if [ -c /dev/${device} ]; then
+	sudo rmmod ${device}
 	sudo rm -rf /dev/${device}
 fi
 
@@ -20,9 +20,9 @@ fi
 
 make clean && make -j4
 sudo dmesg --clear
-sudo insmod dmatest.ko max_chann=${chann}
+sudo insmod ${device}.ko max_chann=${chann}
 dmesg
 
-sudo mknod /dev/${device} c $(sudo cat /sys/kernel/debug/dmatest/major) 1
+sudo mknod /dev/${device} c $(sudo cat /sys/kernel/debug/${device}/major) 1
 
 sudo journalctl --flush

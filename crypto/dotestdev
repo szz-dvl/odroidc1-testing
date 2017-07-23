@@ -1,0 +1,17 @@
+#!/bin/bash
+
+device="cryptotest"
+
+if [ -c /dev/${device} ]; then
+	sudo rmmod ${device}
+	sudo rm -rf /dev/${device}
+fi
+
+make clean && make -j4
+sudo dmesg --clear
+sudo insmod ${device}.ko
+dmesg
+
+sudo mknod /dev/${device} c $(sudo cat /sys/kernel/debug/${device}/major) 1
+
+sudo journalctl --flush

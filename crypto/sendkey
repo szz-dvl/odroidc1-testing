@@ -1,0 +1,27 @@
+#!/bin/bash
+
+keylen=8
+
+if [ ! -z $1 ]; then
+	case "$1" in
+        8)
+            keylen="$1"
+            ;;
+        16)
+            keylen="$1"
+            ;;
+        24)
+            keylen="$1"
+            ;;
+        32)
+            keylen="$1"
+            ;;
+        *)
+            echo $"Invalid keylen: $1, aborting."
+            exit 1
+	esac
+fi
+
+key=`sudo dd if=/dev/hwrng bs=$(( $keylen / 2 )) count=1 2> /dev/null | xxd -p`
+
+echo -n $key | sudo tee /sys/kernel/debug/cryptotest/key > /dev/null

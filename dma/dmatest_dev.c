@@ -349,7 +349,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 
 		i = 0;
 
-		if (cmd >= 0) {
+		if (com >= 0) {
 
 		    cmd = (command *) kzalloc (sizeof(cmd), GFP_KERNEL);
 
@@ -361,7 +361,6 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 				
 			}
 
-			INIT_LIST_HEAD(&cmd->elem);
 			cmd->cmd = com;
 			cmd->args = args;
 				
@@ -995,7 +994,6 @@ tjob * init_job (telem * node, uint test, int subtest) {
 	} 
 	
 	INIT_LIST_HEAD(&job->data);
-	INIT_LIST_HEAD(&job->elem);
 	
 	job->parent = node;
 	job->tnum = test;
@@ -1252,7 +1250,8 @@ static telem * get_min_node (void) {
 static int __init dmatest_init(void)
 {
 	int i;
-
+	telem * node, * temp;
+	
 	init_dma_attrs(&dma_attr);
 	
 	major = register_chrdev(0, "dmatest", &fops);
@@ -1279,7 +1278,7 @@ static int __init dmatest_init(void)
 	
 	for (i = 0; i < max_chann; i++) {
 		
-		telem * node = (telem *) kzalloc(sizeof(telem), GFP_KERNEL);
+		node = (telem *) kzalloc(sizeof(telem), GFP_KERNEL);
 		
 		if (node) {
 
@@ -1295,21 +1294,21 @@ static int __init dmatest_init(void)
 		} else {
 			
 			pr_err("Error allocating element %d.\n", i);
-			break;
+			goto err_gen;
 			
 		}
 	}
-	
-	if (i == 0) {
 		
-		pr_err("No channels availbale.\n");
-		goto err_gen;
-		
-	}
-	
 	return 0;
 	
  err_gen:
+	
+	list_for_each_entry_safe (node, temp, &node_list, elem) {
+		
+		list_del(&node->elem);
+		kfree(node);
+	}
+	
 	debugfs_remove_recursive( root );
 	unregister_chrdev ( major, "dmatest" );
 	return -6;
