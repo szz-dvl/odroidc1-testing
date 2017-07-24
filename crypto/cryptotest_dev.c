@@ -49,6 +49,37 @@ struct dentry *root;
 static unsigned int keylen, textlen;
 static char key [KEY_SIZE_MAX];
 static char * text;
+struct dma_chan * chan;
+
+uint verbose = 0;
+
+bool valid_state ( tjob * job ) {
+
+	switch (job->tnum) {
+		
+	case CRYPTO_AES:
+		return (job->data->keylen >= AES_MIN_KEY_SIZE && job->data->keylen <= AES_MAX_KEY_SIZE) && (job->tmode < CRYPTO_TDES_CBC);
+	case CRYPTO_TDES:
+		return (job->data->keylen == KEY_SIZE_8B || job->data->keylen == KEY_SIZE_24B) && (job->tmode == CRYPTO_TDES_CBC && job->tmode == CRYPTO_TDES_ECB);
+	case CRYPTO_CRC:
+	case CRYPTO_DIVX:
+		return true;
+	default:
+		return false;
+	}
+}
+
+void destroy_job ( tjob * job ) {
+
+	list_del(&job->elem);
+	
+	if (job->data->key)
+		kfree(job->data->key);
+
+	kfree(job->data->text);
+	kfree(job->data);
+	kfree(job);
+}
 
 static bool register_debugfs (void) {
 
@@ -71,6 +102,10 @@ static bool register_debugfs (void) {
 	    goto err_reg;
 
 	d = debugfs_create_u32("keylen", S_IRUGO, root, (u32 *)&keylen);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("verbose", S_IRUGO | S_IWUSR, root, (u32 *)&verbose);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -276,8 +311,6 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 		}	
 	}
 
-	i = 0;
-
 	if (cmd >= 0) {
 
 		for (i = 0; i < times; i++) {
@@ -319,30 +352,90 @@ tjob * init_job (telem * node, command * cmd) {
 	
 	if (!job) {
 		
-		pr_err("Error allocating new job.\n");
+		pr_err("Node %u: Error allocating new job.\n", node->id);
+		
 		return NULL;
 		
-	} 
+	} else {
+		
+		job->parent = node;
+		job->tnum = cmd->tnum;
+		job->tmode = cmd->tmode;
+		job->args = cmd->args;
+		job->id = job_id ++;
+		
+		pr_info("Node %u: New job (%u) for %u.\n", node->id, job->id, job->tnum);
+	}
+	
+	job->data = (tdata * ) kzalloc (sizeof(tdata), GFP_KERNEL);
 
-	job->id = job_id ++;
-	
-	job->tnum = cmd->tnum;
-	job->tmode = cmd->tmode;
-	
-	job->key = (char *) kzalloc (keylen, GFP_KERNEL);
-	spin_lock (&key_lock);
-	strncpy(job->key, key, keylen);
-	job->keylen = keylen;
-	spin_unlock (&key_lock);
+	if (!job->data) {
 
-    job->text = (char *) kzalloc (textlen, GFP_KERNEL);
-	spin_lock (&text_lock);
-	strncpy(job->text, text, textlen);
-	job->txtlen = textlen;
-	spin_unlock (&text_lock);
-	
+		pr_err("%u >> Error allocating job data.\n", job->id);
+		kfree(job);
+
+		return NULL;
+	}
+
+	if (textlen) {
+		
+		job->data->text = (char *) kzalloc (textlen, GFP_KERNEL);
+		if (!job->data->text) {
+			
+			pr_err("%u >> Error allocating job text.\n", job->id);
+			kfree(job->data);
+			kfree(job);
+
+			return NULL;
+		}
+		
+		spin_lock (&text_lock);
+		strncpy(job->data->text, text, textlen);
+		job->data->txtlen = textlen;
+		spin_unlock (&text_lock);
+		
+	} else {
+
+		pr_err("%u >> No text found, aborting.\n", job->id);
+		kfree(job->data);
+		kfree(job);
+
+		return NULL;	
+	}
+    	
+	if (job->tnum < CRYPTO_CRC) {
+		
+		if (keylen) {
+			
+			job->data->key = (char *) kzalloc (keylen, GFP_KERNEL);
+			if (!job->data->key) {
+				
+				pr_err("%u >> Error allocating job key.\n", job->id);
+				kfree(job->data->text);
+				kfree(job->data);
+				kfree(job);
+
+				return NULL;
+			}
+			
+			spin_lock (&key_lock);
+			strncpy(job->data->key, key, keylen);
+			job->data->keylen = keylen;
+			spin_unlock (&key_lock);
+			
+		} else {
+
+			pr_err("%u >> No key found, aborting.\n", job->id);
+			kfree(job->data->text);
+			kfree(job->data);
+			kfree(job);
+
+			return NULL;
+		} 
+	}
+
 	/* Store cmd arguments for decrypt ... */
-
+	
 	spin_lock(&node->lock);
 	list_add_tail(&job->elem, &node->jobs);
 	spin_unlock(&node->lock);
@@ -351,21 +444,29 @@ tjob * init_job (telem * node, command * cmd) {
 }
 
 tjob * get_job (telem * node, command * cmd) {
-
+	
 	tjob * job;
 	
-	if (cmd->jid > 0) {
+	if ((cmd->tnum == CRYPTO_AES || cmd->tnum == CRYPTO_TDES) && cmd->args == 1) {
 
-		list_for_each_entry(node, &node_list, elem) { 
-
-			list_for_each_entry (job, &node->jobs, elem) {
-
-				if (job->id == cmd->jid)
-					return job;
+		if (cmd->jid >= 0) {
+			
+			list_for_each_entry(node, &node_list, elem) { 
+				
+				list_for_each_entry (job, &node->jobs, elem) {
+					
+					if (job->id == cmd->jid)
+						return job;
+				}
 			}
+			
+			return NULL;
+			
+		} else {
+
+			pr_info("Node %u: Bad jid (%d) provided.\n", node->id, cmd->jid);
+			return NULL;
 		}
-		
-		return NULL;
 
 	} else
 		return init_job( node, cmd );
@@ -381,13 +482,21 @@ static int run_test (void * node_ptr) {
 
 	list_for_each_entry_safe (cmd, temp, &node->cmd_list, elem) {
 
-		pr_info("Running command %u (args: %d).\n", cmd->tnum, cmd->args);
+		pr_info("Node %u: Running command %u (args: %d).\n", node->id, cmd->tnum, cmd->args);
 
+		if (cmd->tnum > CRYPTO_DIVX) {
+
+			pr_err("Node %u: Bad command received %u.\n", node->id, cmd->tnum);
+			list_del(&cmd->elem);
+			kfree(cmd);
+			continue;
+		}
+		
 		job = get_job(node, cmd);
 
 		if (!job) {
 			
-			pr_info("Failed to get job.\n");
+			pr_err("Node %u: Failed to get job.\n", node->id);
 			list_del(&cmd->elem);
 			kfree(cmd);
 			continue;
@@ -398,7 +507,7 @@ static int run_test (void * node_ptr) {
 				
 			case CRYPTO_AES:
 				{
-					switch(cmd->args) {
+					switch(job->args) {
 					case 0:
 						ret = do_aes_encrypt ( job );
 						break;;
@@ -413,7 +522,7 @@ static int run_test (void * node_ptr) {
 				
 			case CRYPTO_TDES:
 				{
-					switch(cmd->args) {
+					switch(job->args) {
 					case 0:
 						ret = do_tdes_encrypt ( job );
 						break;;
@@ -428,7 +537,7 @@ static int run_test (void * node_ptr) {
 
 			case CRYPTO_CRC:
 				{
-					switch(cmd->args) {
+					switch(job->args) {
 					case 0:
 						ret = do_crc_update ( job );
 						break;;
@@ -488,6 +597,12 @@ static int __init crypto_init(void)
 
 	uint i;
 	telem * node , * temp;
+	static dma_cap_mask_t mask;
+	
+	dma_cap_zero(mask);
+	chan = dma_request_channel ( mask, NULL, NULL );
+	
+	//dev->coherent_dma_mask = DMA_BIT_MASK(32);
 	
 	major = register_chrdev(0, "cryptotest", &fops);
 	if ( major < 0 ) {

@@ -1,30 +1,30 @@
 #include <linux/kthread.h>
 #include <linux/jiffies.h>
-#include <linux/string.h>
 #include <linux/random.h>
 #include <linux/scatterlist.h>
-#include <linux/hardirq.h>
+#include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/fs.h>
-#include <linux/string.h>
 #include <linux/slab.h>
 #include <linux/debugfs.h>
 #include <linux/string.h>
 #include <linux/crypto.h>
+#include <linux/device.h>
 #include <crypto/aes.h>
 
-typedef enum test_type {
 
+typedef enum test_type {
+	
 	CRYPTO_AES,
 	CRYPTO_TDES,
 	CRYPTO_CRC,
 	CRYPTO_DIVX
-   
+	
 } ttype;
 
 typedef enum test_mode {
-
+	
 	CRYPTO_AES_CBC,
 	CRYPTO_AES_ECB,
 	CRYPTO_AES_CTR,
@@ -34,7 +34,7 @@ typedef enum test_mode {
 } tmode;
 
 typedef enum key_sizes {
-
+	
 	KEY_SIZE_8B = 8,
 	KEY_SIZE_16B = AES_KEYSIZE_128,
 	KEY_SIZE_24B = AES_KEYSIZE_192,
@@ -43,6 +43,30 @@ typedef enum key_sizes {
 	
 } klen;
 
+typedef struct ablkcipher_data {
+	
+	struct ablkcipher_request * ereq;
+	struct ablkcipher_request * dreq;
+	struct crypto_ablkcipher * tfm;
+
+	struct scatterlist esrc, edst, ddst;
+	
+} ablk_d;
+
+typedef struct ahash_data {
+
+	struct ahash_request * req;
+	struct crypto_hash * tfm;
+	
+} ahash_d;
+
+typedef struct acomp_data {
+	
+    struct acomp_req * req;
+	struct crypto_acomp * tfm;
+
+} acomp_d;
+	
 typedef struct cmd_grabber {
 	
 	struct list_head elem;
@@ -69,34 +93,43 @@ typedef struct test_elem {
 	
 } telem;
 
-typedef struct test_job {
-	
-	struct list_head elem;
-	
-	uint id;
-
-	const char * tname;
+typedef struct test_data {
 	
 	char * text;
 	char * key;
-
+	
 	klen keylen;
 	uint txtlen;
 	
-	char * result;
+	void * spec;
+	
+} tdata;
 
-	struct ablkcipher_request * ablk_req;
-	struct crypto_blkcipher * ablk_tfm;
-
+typedef struct test_job {
+	
+	uint id;
+	telem * parent;
+	
+	const char * tname;
+	
+	tdata * data;
+	
 	ttype tnum;
-    int tmode;
+    tmode tmode;
+
+	uint args;
+
+	struct list_head elem;
 	
 	unsigned long stime;	
 	
 } tjob;
 
-#define MAX_KEY_SIZE AES_KEYSIZE_256 
 
+/* Public */
+void destroy_job ( tjob * job );
+bool valid_state ( tjob * job );
+	
 /* AES */
 bool do_aes_encrypt ( tjob * job );
 bool do_aes_decrypt ( tjob * job );
@@ -113,3 +146,8 @@ bool do_crc_update ( tjob * job );
 
 /* DIVX*/
 bool do_divx_decomp ( tjob * job );
+
+extern struct dma_chan * chan;
+
+/* Public params */
+extern uint verbose;

@@ -1,0 +1,55 @@
+#!/bin/bash
+
+if [ ! -c /dev/cryptotest ]; then
+	./dotestdev
+fi
+
+# read the options
+TEMP=`getopt -o v:t:k: --long verbose:,text:,key: -n 'sendpar' -- "$@"`
+eval set -- "$TEMP"
+
+while true ; do
+	#echo "parsing: ($1,$2)"
+    case "$1" in
+		-k | --key)
+				case "$2" in
+					8)
+						keylen="$2"
+						;;
+					16)
+						keylen="$2"
+						;;
+					24)
+						keylen="$2"
+						;;
+					32)
+						keylen="$2"
+						;;
+					*)
+						echo $"Invalid keylen: $2, skipping."
+						;;
+				esac
+				shift 2;;
+			
+		-t | --text)
+			text="$2"; shift 2 ;;
+		
+		-v | --verbose)
+			verbose="$2"; shift 2 ;;
+					
+		--) shift 2; break ;;
+		*) echo "Error parsing opts ($1,$2) aborting." ; exit 1 ;;
+	esac
+done
+
+if [ ! -z $keylen ]; then
+   	echo -n "$(sudo dd if=/dev/hwrng bs=$(( $keylen / 2 )) count=1 2> /dev/null | xxd -p)" | sudo tee /sys/kernel/debug/cryptotest/key > /dev/null
+fi
+
+if [ ! -z "$text" ]; then
+	echo -n "$text" | sudo tee /sys/kernel/debug/cryptotest/text > /dev/null
+fi
+
+if [ ! -z $verbose ]; then
+	echo -n "$verbose" | sudo tee /sys/kernel/debug/cryptotest/verbose &> /dev/null
+fi

@@ -1,9 +1,0 @@
-#!/bin/bash
-
-text="A testing text to be encrypted, decrypted and even hashed!"
-
-if [ ! -z "$1" ]; then
-	text="$1"
-fi
-
-echo -n $text | sudo tee /sys/kernel/debug/cryptotest/text > /dev/null

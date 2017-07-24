@@ -1,0 +1,30 @@
+#!/bin/bash
+
+if [ ! -c /dev/cryptotest ]; then
+	./dotestdev
+fi
+
+# Sends a command to the test device. syntax: ./sendcmd cmd,mode,args,jid,times 
+#
+# Information about available commands and the accepted arguments for each of those can be found in the device source and header files, to note it down:
+#
+# CRYPTO_AES:       (command = 0),  args will be interpreted as the subtest to be run, if decryption is requested (1) a jid (job id) is expected,
+#                                   and it needs to be the id of the job holding the previous encryption. Available modes:
+#                                        * CBC = 0
+#                                        * ECB = 1
+#                                        * CTR = 2
+#                                   
+# CRYPTO_TDES:      (command = 1),  args will be interpreted as the subtest to be run, if decryption is requested (1) a jid (job id) is expected,
+#                                   and it needs to be the id of the job holding the previous encryption. Available modes:
+#                                        * CBC = 3
+#                                        * ECB = 4
+#
+# CRYPTO_CRC:       (command = 2),  args will be interpreted as the subtest to be run, if update is requested (1) a jid (job id) is expected,
+#                                   and it needs to be the id of the job holding the previous updates. No mode expected.
+# CRYPTO_DIVX:      (command = 3),  No args expected. No mode expected.
+#
+# For all the commands above, if "times" parameter is provided the test will be run in parallel as many times as demanded. 
+
+test=$(echo -n "$@" | xargs)
+
+echo -n "$test" | sudo tee /dev/cryptotest &> /dev/null
