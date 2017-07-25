@@ -49,12 +49,11 @@ struct dentry *root;
 static unsigned int keylen, textlen;
 static char key [KEY_SIZE_MAX];
 static char * text;
-struct dma_chan * chan;
 
 uint verbose = 0;
 
 bool valid_state ( tjob * job ) {
-
+	
 	switch (job->tnum) {
 		
 	case CRYPTO_AES:
@@ -77,6 +76,7 @@ void destroy_job ( tjob * job ) {
 		kfree(job->data->key);
 
 	kfree(job->data->text);
+	kfree(job->data->spec);
 	kfree(job->data);
 	kfree(job);
 }
@@ -597,12 +597,6 @@ static int __init crypto_init(void)
 
 	uint i;
 	telem * node , * temp;
-	static dma_cap_mask_t mask;
-	
-	dma_cap_zero(mask);
-	chan = dma_request_channel ( mask, NULL, NULL );
-	
-	//dev->coherent_dma_mask = DMA_BIT_MASK(32);
 	
 	major = register_chrdev(0, "cryptotest", &fops);
 	if ( major < 0 ) {
@@ -670,7 +664,7 @@ static void __exit crypto_exit(void)
 			list_for_each_entry (job, &node->jobs, elem) {
 
 				list_del(&job->elem);
-				kfree(job);
+			    destroy_job(job);
 
 			}
 
@@ -682,8 +676,6 @@ static void __exit crypto_exit(void)
 
 	debugfs_remove_recursive(root);
 	unregister_chrdev ( major, "cryptotest" );
-	
-	return;
 }
 
 module_init(crypto_init);

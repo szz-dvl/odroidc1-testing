@@ -12,7 +12,8 @@
 #include <linux/crypto.h>
 #include <linux/device.h>
 #include <crypto/aes.h>
-
+#include <../crypto/internal.h>
+#include <crypto/skcipher.h>
 
 typedef enum test_type {
 	
@@ -43,8 +44,18 @@ typedef enum key_sizes {
 	
 } klen;
 
-typedef struct ablkcipher_data {
+typedef struct skcipher_data {
+
+	struct skcipher_givcrypt_request * ereq;
+	struct skcipher_givcrypt_request * dreq;
+	struct crypto_ablkcipher * tfm;
+
+	struct scatterlist esrc, edst, ddst;
 	
+} skcip_d;
+
+typedef struct ablkcipher_data {
+
 	struct ablkcipher_request * ereq;
 	struct ablkcipher_request * dreq;
 	struct crypto_ablkcipher * tfm;
@@ -146,8 +157,6 @@ bool do_crc_update ( tjob * job );
 
 /* DIVX*/
 bool do_divx_decomp ( tjob * job );
-
-extern struct dma_chan * chan;
 
 /* Public params */
 extern uint verbose;
