@@ -48,7 +48,7 @@ typedef struct skcipher_data {
 
 	struct skcipher_givcrypt_request * ereq;
 	struct skcipher_givcrypt_request * dreq;
-	struct crypto_ablkcipher * tfm;
+    struct crypto_ablkcipher * tfm;
 
 	struct scatterlist esrc, edst, ddst;
 	
@@ -83,7 +83,6 @@ typedef struct cmd_grabber {
 	struct list_head elem;
 	
 	ttype tnum;
-    int tmode;
 	int args;
 	int jid;
 	

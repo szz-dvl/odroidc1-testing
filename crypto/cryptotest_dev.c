@@ -49,17 +49,19 @@ struct dentry *root;
 static unsigned int keylen, textlen;
 static char key [KEY_SIZE_MAX];
 static char * text;
+static uint mode;
 
 uint verbose = 0;
+
 
 bool valid_state ( tjob * job ) {
 	
 	switch (job->tnum) {
 		
 	case CRYPTO_AES:
-		return (job->data->keylen >= AES_MIN_KEY_SIZE && job->data->keylen <= AES_MAX_KEY_SIZE) && (job->tmode < CRYPTO_TDES_CBC);
+		return (job->data->keylen >= AES_MIN_KEY_SIZE && job->data->keylen <= AES_MAX_KEY_SIZE);
 	case CRYPTO_TDES:
-		return (job->data->keylen == KEY_SIZE_8B || job->data->keylen == KEY_SIZE_24B) && (job->tmode == CRYPTO_TDES_CBC && job->tmode == CRYPTO_TDES_ECB);
+		return (job->data->keylen == KEY_SIZE_8B || job->data->keylen == KEY_SIZE_24B);
 	case CRYPTO_CRC:
 	case CRYPTO_DIVX:
 		return true;
@@ -106,6 +108,10 @@ static bool register_debugfs (void) {
 	    goto err_reg;
 
 	d = debugfs_create_u32("verbose", S_IRUGO | S_IWUSR, root, (u32 *)&verbose);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("mode", S_IRUGO | S_IWUSR, root, (u32 *)&mode);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -263,7 +269,7 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
     unsigned int res;
 	char * token, * str = "";
 	uint i = 0;
-	int mode = -1, args = -1, com = -1, jid = -1, times = 1; 
+	int args = -1, com = -1, jid = -1, times = 1; 
     command * cmd;
 	telem * node;
 	telem * nodes [max_node];
@@ -289,15 +295,12 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 					com = res;
 					break;;
 				case 1:
-					mode = (int) res;
-					break;;
-				case 2:
 					args = (int) res;
 					break;;
-				case 3:
+				case 2:
 					jid = (int) res;
 					break;;
-				case 4:
+				case 3:
 				    times = (int) res;
 					break;;
 				default:
@@ -326,9 +329,9 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 			}
 
 			cmd->tnum = com;
-			cmd->tmode = mode;
 			cmd->args = args;
-		   
+			cmd->jid = jid;
+			
 			node = get_min_node(); /* Must always return a node. */
 		
 			list_add_tail(&cmd->elem, &node->cmd_list);
@@ -360,12 +363,23 @@ tjob * init_job (telem * node, command * cmd) {
 		
 		job->parent = node;
 		job->tnum = cmd->tnum;
-		job->tmode = cmd->tmode;
+		job->tmode = mode;
 		job->args = cmd->args;
 		job->id = job_id ++;
 		
 		pr_info("Node %u: New job (%u) for %u.\n", node->id, job->id, job->tnum);
 	}
+
+	if ( ((job->tmode > CRYPTO_AES_CTR) && job->tnum == CRYPTO_AES) ||
+		 ((job->tmode < CRYPTO_TDES_CBC || job->tmode > CRYPTO_TDES_ECB) && job->tnum == CRYPTO_TDES)) { 
+
+		pr_err("%u >> Bad mode found, aborting.\n", job->id);
+		kfree(job);
+
+		return NULL;
+
+	}
+		
 	
 	job->data = (tdata * ) kzalloc (sizeof(tdata), GFP_KERNEL);
 
@@ -455,8 +469,11 @@ tjob * get_job (telem * node, command * cmd) {
 				
 				list_for_each_entry (job, &node->jobs, elem) {
 					
-					if (job->id == cmd->jid)
+					if (job->id == cmd->jid) {
+						job->args = 1;
 						return job;
+					}
+						
 				}
 			}
 			

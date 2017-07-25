@@ -4,7 +4,7 @@ if [ ! -c /dev/cryptotest ]; then
 	./dotestdev
 fi
 
-# Sends a command to the test device. syntax: ./sendcmd cmd,mode,args,jid,times 
+# Sends a command to the test device. syntax: ./sendcmd cmd,args,jid,times 
 #
 # Information about available commands and the accepted arguments for each of those can be found in the device source and header files, to note it down:
 #
