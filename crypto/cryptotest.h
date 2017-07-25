@@ -26,8 +26,8 @@ typedef enum test_type {
 
 typedef enum test_mode {
 	
-	CRYPTO_AES_CBC,
 	CRYPTO_AES_ECB,
+	CRYPTO_AES_CBC,
 	CRYPTO_AES_CTR,
 	CRYPTO_TDES_CBC,
 	CRYPTO_TDES_ECB
@@ -138,7 +138,6 @@ typedef struct test_job {
 
 /* Public */
 void destroy_job ( tjob * job );
-bool valid_state ( tjob * job );
 	
 /* AES */
 bool do_aes_encrypt ( tjob * job );

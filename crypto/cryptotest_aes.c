@@ -43,28 +43,20 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 
 	tjob * job = req->data;
     skcip_d * spec_data = job->data->spec;
+	struct ablkcipher_request * ereq = &spec_data->ereq->creq;
+	struct ablkcipher_request * dreq = &spec_data->dreq->creq;
 	
     pr_info("%u >> AES decrypt finished.\n", job->id);
 
 	if (verbose >= 2) {
-		pr_info("%u >> Encrypted text: %s\n", job->id, (char *) sg_virt(spec_data->dreq->creq.src));
-		pr_info("%u >> Decrypted text: %s\n", job->id, (char *) sg_virt(spec_data->dreq->creq.dst));
+		pr_info("%u >> Encrypted text: %s\n", job->id, (char *) sg_virt(dreq->src));
+		pr_info("%u >> Decrypted text: %s\n", job->id, (char *) sg_virt(dreq->dst));
 	}
 
-	if (memcmp(sg_virt(spec_data->dreq->creq.dst), sg_virt(spec_data->ereq->creq.src), job->data->txtlen))
+	if (memcmp(sg_virt(ereq->src), sg_virt(dreq->dst), job->data->txtlen))
 		pr_err("%u >> Text failed to process.\n", job->id);
 	else
 		pr_warn("%u >> Text successfully processed!\n", job->id);
-	
-	dma_free_coherent(NULL, job->data->txtlen, sg_virt(spec_data->dreq->creq.src), sg_dma_address(spec_data->dreq->creq.src));
-	dma_free_coherent(NULL, job->data->txtlen, sg_virt(spec_data->dreq->creq.dst), sg_dma_address(spec_data->dreq->creq.dst));
-	dma_free_coherent(NULL, job->data->txtlen, sg_virt(spec_data->ereq->creq.src), sg_dma_address(spec_data->ereq->creq.src));
-
-	kfree(spec_data->ereq->giv);
-	skcipher_givcrypt_free (spec_data->ereq);
-    skcipher_givcrypt_free (spec_data->dreq);
-
-	crypto_free_ablkcipher (spec_data->tfm);
 	
 	destroy_job(job);
 	
@@ -93,13 +85,10 @@ bool do_aes_encrypt ( tjob * job ) {
 
 	struct scatterlist * dst, * src;
 	skcip_d * spec_data;
-	
-	if (!valid_state(job)) 
-		return false;
-	
-	spec_data = job->data->spec = (skcip_d *) kzalloc(sizeof(ablk_d), GFP_KERNEL);
+		
+	spec_data = job->data->spec = (skcip_d *) kzalloc(sizeof(skcip_d), GFP_KERNEL);
 	if (!spec_data)
-	    return false;
+	    goto fail;
 	
 	dst = &spec_data->edst;
 	src = &spec_data->esrc;
@@ -113,7 +102,7 @@ bool do_aes_encrypt ( tjob * job ) {
 					   CRYPTO_ALG_TYPE_MASK)) {
 		
 		pr_err("%u >> Algorithm not found, aborting.\n", job->id);
-		return false;		
+	    goto fail;		
 	}
 	
 	spec_data->tfm = __crypto_ablkcipher_cast(crypto_alloc_base(to_alg_name(job),
@@ -167,21 +156,6 @@ bool do_aes_encrypt ( tjob * job ) {
 	
  fail:
 	pr_err("%u >> Configuration error.\n", job->id);
-	
-	if (spec_data->tfm)
-		crypto_free_ablkcipher (spec_data->tfm);
-
-	if (spec_data->ereq) {
-		
-		kfree(spec_data->ereq->giv);
-		skcipher_givcrypt_free (spec_data->ereq);
-	}
-	
-	if (sg_dma_address(src))
-		dma_free_coherent(NULL, job->data->txtlen, sg_virt(src), sg_dma_address(src));
-	
-	if (sg_dma_address(dst))
-		dma_free_coherent(NULL, job->data->txtlen, sg_virt(dst), sg_dma_address(dst));
 	
 	destroy_job(job);
 

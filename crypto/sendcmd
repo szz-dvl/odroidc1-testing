@@ -10,8 +10,8 @@ fi
 #
 # CRYPTO_AES:       (command = 0),  args will be interpreted as the subtest to be run, if decryption is requested (1) a jid (job id) is expected,
 #                                   and it needs to be the id of the job holding the previous encryption. Available modes:
-#                                        * CBC = 0
-#                                        * ECB = 1
+#                                        * ECB = 0
+#                                        * CBC = 1
 #                                        * CTR = 2
 #                                   
 # CRYPTO_TDES:      (command = 1),  args will be interpreted as the subtest to be run, if decryption is requested (1) a jid (job id) is expected,

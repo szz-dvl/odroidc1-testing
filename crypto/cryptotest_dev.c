@@ -53,32 +53,74 @@ static uint mode;
 
 uint verbose = 0;
 
-
-bool valid_state ( tjob * job ) {
+static void free_spec ( tjob * job ) {
 	
-	switch (job->tnum) {
-		
-	case CRYPTO_AES:
-		return (job->data->keylen >= AES_MIN_KEY_SIZE && job->data->keylen <= AES_MAX_KEY_SIZE);
-	case CRYPTO_TDES:
-		return (job->data->keylen == KEY_SIZE_8B || job->data->keylen == KEY_SIZE_24B);
-	case CRYPTO_CRC:
-	case CRYPTO_DIVX:
-		return true;
-	default:
-		return false;
-	}
+	switch (job->tnum)
+		{
+
+		case CRYPTO_AES:
+			{
+				skcip_d * spec_data = job->data->spec;
+				struct ablkcipher_request * ereq;
+				struct ablkcipher_request * dreq;
+				
+				if (spec_data->tfm)
+					crypto_free_ablkcipher (spec_data->tfm);
+
+				if (spec_data->ereq) {
+
+					ereq = &spec_data->ereq->creq;
+					
+					if (sg_dma_address(ereq->src))
+						dma_free_coherent(NULL, job->data->txtlen, sg_virt(ereq->src), sg_dma_address(ereq->src));
+				
+					if (sg_dma_address(ereq->dst))
+						dma_free_coherent(NULL, job->data->txtlen, sg_virt(ereq->dst), sg_dma_address(ereq->dst));
+				
+					kfree(spec_data->ereq->giv);
+					skcipher_givcrypt_free (spec_data->ereq);
+				}
+
+				if (spec_data->dreq) {
+
+					dreq = &spec_data->dreq->creq;
+					
+					if (sg_dma_address(dreq->dst))
+						dma_free_coherent(NULL, job->data->txtlen, sg_virt(dreq->dst), sg_dma_address(dreq->dst));
+					
+					skcipher_givcrypt_free (spec_data->dreq);
+				}
+				
+				kfree(job->data->spec);
+			}
+		    return;
+				
+		case CRYPTO_TDES:
+			return;
+
+		case CRYPTO_CRC:
+			return;
+			
+		case CRYPTO_DIVX:
+			return;
+		}
 }
 
-void destroy_job ( tjob * job ) {
 
+void destroy_job ( tjob * job ) {
+	
 	list_del(&job->elem);
+
+	spin_lock (&job->parent->lock);
+	job->parent->pending --;
+	spin_unlock (&job->parent->lock);
+	
+	free_spec(job);
 	
 	if (job->data->key)
 		kfree(job->data->key);
-
+	
 	kfree(job->data->text);
-	kfree(job->data->spec);
 	kfree(job->data);
 	kfree(job);
 }
@@ -233,14 +275,6 @@ static int par_open (struct inode * inode, struct file * filep) {
 	
 	return 0;
 }
-
-/* static ssize_t dev_send (struct file * file, char __user * buff, size_t len, loff_t * off) { */
-	
-/* 	*off += len; */
-	
-/* 	return len; */
-	
-/* } */
 
 static void free_nodes (telem * nodes []) {
 
@@ -447,8 +481,6 @@ tjob * init_job (telem * node, command * cmd) {
 			return NULL;
 		} 
 	}
-
-	/* Store cmd arguments for decrypt ... */
 	
 	spin_lock(&node->lock);
 	list_add_tail(&job->elem, &node->jobs);
@@ -678,13 +710,8 @@ static void __exit crypto_exit(void)
 		
 		if (node->pending) {
 
-			list_for_each_entry (job, &node->jobs, elem) {
-
-				list_del(&job->elem);
+			list_for_each_entry (job, &node->jobs, elem) 
 			    destroy_job(job);
-
-			}
-
 		}
 		
 		list_del(&node->elem);
