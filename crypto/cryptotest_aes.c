@@ -19,19 +19,13 @@ static void aes_encrypt_cb (struct crypto_async_request *req, int err) {
 	tjob * job = req->data;
 	skcip_d * spec_data = job->data->spec;
 	struct ablkcipher_request * myreq = &spec_data->ereq->creq;
-	uint i;
 
 	pr_info("%u >> AES encrypt finished.\n", job->id);
 	
 	if (verbose >= 2) {
 		
 		pr_info("%u >> Original text: %s \n", job->id, (char *) sg_virt(myreq->src));
-		pr_info("%u >> Encrypted text: %s \n", job->id, (char *) sg_virt(myreq->dst));
-
-		if (verbose >= 3) {
-			for (i = 0; i < job->data->txtlen; i++)
-				pr_info("0x%02x", *(char *)(sg_virt(myreq->dst) + i));
-		}
+		print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(myreq->dst), job->data->txtlen);
 	}
 
 	if (job->args > 1)
@@ -47,16 +41,37 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 	struct ablkcipher_request * dreq = &spec_data->dreq->creq;
 	
     pr_info("%u >> AES decrypt finished.\n", job->id);
+	
+	if (memcmp(sg_virt(ereq->src), sg_virt(dreq->dst), job->data->txtlen)) {
 
-	if (verbose >= 2) {
-		pr_info("%u >> Encrypted text: %s\n", job->id, (char *) sg_virt(dreq->src));
-		pr_info("%u >> Decrypted text: %s\n", job->id, (char *) sg_virt(dreq->dst));
-	}
+		if (verbose >= 2) {
+		
+			print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dreq->src), job->data->txtlen);
+			pr_info("\n");
+			print_hex_dump_bytes("Decrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dreq->dst), job->data->txtlen);
+			pr_info("\n");
+			print_hex_dump_bytes("Original text:  ", DUMP_PREFIX_ADDRESS, sg_virt(ereq->src), job->data->txtlen);
 
-	if (memcmp(sg_virt(ereq->src), sg_virt(dreq->dst), job->data->txtlen))
+			/* print_hex_dump(KERN_DEBUG, "Encrypted text: ", DUMP_PREFIX_ADDRESS, 32, 8, sg_virt(dreq->src), job->data->txtlen, true); */
+			/* pr_info("\n"); */
+			/* print_hex_dump(KERN_DEBUG, "Decrypted text: ", DUMP_PREFIX_ADDRESS, 32, 8, sg_virt(dreq->dst), job->data->txtlen, true); */
+			/* pr_info("\n"); */
+			/* print_hex_dump(KERN_DEBUG, "Original text:  ", DUMP_PREFIX_ADDRESS, 32, 8, sg_virt(ereq->src), job->data->txtlen, true); */
+			
+		}
+		
 		pr_err("%u >> Text failed to process.\n", job->id);
-	else
+
+	} else {
+
+		if (verbose >= 2) {
+		
+			print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dreq->src), job->data->txtlen);
+			pr_info("%u >> Decrypted text: %s\n", job->id, (char *) sg_virt(dreq->dst));
+		}
+		
 		pr_warn("%u >> Text successfully processed!\n", job->id);
+	}
 	
 	destroy_job(job);
 	
@@ -85,7 +100,11 @@ bool do_aes_encrypt ( tjob * job ) {
 
 	struct scatterlist * dst, * src;
 	skcip_d * spec_data;
-		
+	u32 type = CRYPTO_ALG_TYPE_ABLKCIPHER | CRYPTO_ALG_ASYNC;
+
+	if (job->tmode)
+		type |= CRYPTO_ALG_TYPE_GIVCIPHER;
+	
 	spec_data = job->data->spec = (skcip_d *) kzalloc(sizeof(skcip_d), GFP_KERNEL);
 	if (!spec_data)
 	    goto fail;
@@ -95,21 +114,13 @@ bool do_aes_encrypt ( tjob * job ) {
 	
 	job->data->txtlen = ALIGN(job->data->txtlen, AES_BLOCK_SIZE);
 	
-	if(!crypto_has_alg(to_alg_name(job),
-					   CRYPTO_ALG_TYPE_GIVCIPHER  |
-					   CRYPTO_ALG_TYPE_ABLKCIPHER |
-					   CRYPTO_ALG_ASYNC,
-					   CRYPTO_ALG_TYPE_MASK)) {
+	if(!crypto_has_alg(to_alg_name(job), type, CRYPTO_ALG_TYPE_MASK)) {
 		
 		pr_err("%u >> Algorithm not found, aborting.\n", job->id);
 	    goto fail;		
 	}
 	
-	spec_data->tfm = __crypto_ablkcipher_cast(crypto_alloc_base(to_alg_name(job),
-																CRYPTO_ALG_TYPE_GIVCIPHER  |
-																CRYPTO_ALG_TYPE_ABLKCIPHER |
-																CRYPTO_ALG_ASYNC,
-																CRYPTO_ALG_TYPE_MASK));
+	spec_data->tfm = __crypto_ablkcipher_cast(crypto_alloc_base(to_alg_name(job), type, CRYPTO_ALG_TYPE_MASK));
 	if (!spec_data->tfm)
 		goto fail;
 
@@ -126,10 +137,16 @@ bool do_aes_encrypt ( tjob * job ) {
 	if (!spec_data->ereq)
 		goto fail;
 
-	skcipher_givcrypt_set_giv (spec_data->ereq, kzalloc(crypto_ablkcipher_crt(spec_data->tfm)->ivsize, GFP_KERNEL), 0);
-	
-	if (!spec_data->ereq->giv)
-		goto fail;
+	if (job->tmode) {
+
+		skcipher_givcrypt_set_giv (spec_data->ereq, kzalloc(crypto_ablkcipher_crt(spec_data->tfm)->ivsize, GFP_KERNEL), 0);
+		if (!spec_data->ereq->giv) {
+
+			pr_err("%u >> Failed to generate IVs.\n", job->id);
+			goto fail;
+		
+		}
+	}
 	
 	if (sg_dma_map(job, src)) 
 		memcpy(sg_virt(src), job->data->text, job->data->txtlen);
@@ -148,9 +165,17 @@ bool do_aes_encrypt ( tjob * job ) {
 			sg_virt(spec_data->ereq->creq.dst), sg_dma_address(spec_data->ereq->creq.dst));
 	
     skcipher_givcrypt_set_callback (spec_data->ereq, 0, aes_encrypt_cb, job);
-	
-	if (crypto_skcipher_givencrypt(spec_data->ereq) < 0)
-	    goto fail;
+
+	if (job->tmode) {
+
+		if (crypto_skcipher_givencrypt(spec_data->ereq) < 0)
+			goto fail;
+		
+	} else {
+		
+		if (crypto_ablkcipher_encrypt(&spec_data->ereq->creq) < 0)
+			goto fail;
+	}
 	
 	return true;
 	
@@ -179,8 +204,13 @@ bool do_aes_decrypt ( tjob * job ) {
     spec_data->dreq = skcipher_givcrypt_alloc (spec_data->tfm, GFP_KERNEL);
 	if (!spec_data->dreq)
 		goto fail;
-	
-	skcipher_givcrypt_set_giv (spec_data->dreq, spec_data->ereq->giv, 0);
+
+	/* skcipher_givcrypt_set_giv (spec_data->dreq, kzalloc(crypto_ablkcipher_crt(spec_data->tfm)->ivsize, GFP_KERNEL), 0); */
+	/* if (!spec_data->dreq->giv) */
+	/* 	goto fail; */
+
+	if (job->tmode)
+		skcipher_givcrypt_set_giv (spec_data->dreq, spec_data->ereq->giv, 0);
 	
 	if (sg_dma_map(job, dst))
 	    memset(sg_virt(dst),0, job->data->txtlen);
