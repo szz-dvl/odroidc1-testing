@@ -47,16 +47,8 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 		if (verbose >= 2) {
 		
 			print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dreq->src), job->data->txtlen);
-			pr_info("\n");
 			print_hex_dump_bytes("Decrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dreq->dst), job->data->txtlen);
-			pr_info("\n");
 			print_hex_dump_bytes("Original text:  ", DUMP_PREFIX_ADDRESS, sg_virt(ereq->src), job->data->txtlen);
-
-			/* print_hex_dump(KERN_DEBUG, "Encrypted text: ", DUMP_PREFIX_ADDRESS, 32, 8, sg_virt(dreq->src), job->data->txtlen, true); */
-			/* pr_info("\n"); */
-			/* print_hex_dump(KERN_DEBUG, "Decrypted text: ", DUMP_PREFIX_ADDRESS, 32, 8, sg_virt(dreq->dst), job->data->txtlen, true); */
-			/* pr_info("\n"); */
-			/* print_hex_dump(KERN_DEBUG, "Original text:  ", DUMP_PREFIX_ADDRESS, 32, 8, sg_virt(ereq->src), job->data->txtlen, true); */
 			
 		}
 		
@@ -74,11 +66,10 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 	}
 	
 	destroy_job(job);
-	
 }
 
 static bool sg_dma_map ( tjob * job, struct scatterlist * sg ) {
-
+	
 	sg_set_buf(sg, dma_alloc_coherent(NULL,
 									  job->data->txtlen,
 									  &sg_dma_address(sg),
@@ -91,7 +82,7 @@ static bool sg_dma_map ( tjob * job, struct scatterlist * sg ) {
 	    return false;
 		
 	} else
-		sg_mark_end(sg); /* Future chain */
+		sg_mark_end(sg); /* Future chain (multitext + byte limitation)*/
 
 	return true;
 }

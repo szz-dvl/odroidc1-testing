@@ -369,7 +369,6 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 			node = get_min_node(); /* Must always return a node. */
 		
 			list_add_tail(&cmd->elem, &node->cmd_list);
-			node->pending ++;
 			nodes[node->id] = node;
 		}
 	}
@@ -483,6 +482,7 @@ tjob * init_job (telem * node, command * cmd) {
 	}
 	
 	spin_lock(&node->lock);
+	node->pending ++;
 	list_add_tail(&job->elem, &node->jobs);
 	spin_unlock(&node->lock);
 	
@@ -531,7 +531,7 @@ static int run_test (void * node_ptr) {
 
 	list_for_each_entry_safe (cmd, temp, &node->cmd_list, elem) {
 
-		pr_info("Node %u: Running command %u (args: %d).\n", node->id, cmd->tnum, cmd->args);
+		pr_info("Node %u: Running command %u (args: %d)\n", node->id, cmd->tnum, cmd->args);
 
 		if (cmd->tnum > CRYPTO_DIVX) {
 
@@ -704,13 +704,13 @@ static void __exit crypto_exit(void)
 {
 
 	telem * node, * temp;
-	tjob * job;
+	tjob * job, * tmp;
 	
 	list_for_each_entry_safe(node, temp, &node_list, elem) {
 		
 		if (node->pending) {
 
-			list_for_each_entry (job, &node->jobs, elem) 
+			list_for_each_entry_safe (job, tmp, &node->jobs, elem) 
 			    destroy_job(job);
 		}
 		
