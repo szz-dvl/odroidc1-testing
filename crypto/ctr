@@ -1,6 +1,0 @@
-#!/bin/bash
-
-for key in 16 24 32; do
-	sudo dmesg --clear && ./sendpar -t "Alohaaaaaaaaaaaa" -v 2 -m 2 -k $key && ./sendcmd 0,2 && dmesg
-	echo
-done

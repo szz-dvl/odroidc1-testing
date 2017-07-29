@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [ ! -c /dev/cryptotest ]; then
+	exit 1
+fi
+
+while read line; do
+
+	tid=$(echo "$line" | awk -F ">>" '{print $1}' | awk -F "]" '{print $2}' | xargs)
+	./rmtext "$tid"
+
+done< <(./prtexts | head -n -2 | tail -n +2)

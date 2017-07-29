@@ -20,7 +20,14 @@ typedef enum test_type {
 	CRYPTO_AES,
 	CRYPTO_TDES,
 	CRYPTO_CRC,
-	CRYPTO_DIVX
+	CRYPTO_DIVX,
+
+	/* Text management */
+
+	TEXT_ADD,
+	TEXT_UPDATE,
+	TEXT_REMOVE,
+	PRINT_TEXTS
 	
 } ttype;
 
@@ -50,7 +57,7 @@ typedef struct skcipher_data {
 	struct skcipher_givcrypt_request * dreq;
     struct crypto_ablkcipher * tfm;
 
-	struct scatterlist esrc, edst, ddst;
+	struct sg_table esrc, edst, ddst;
 	
 } skcip_d;
 
@@ -60,7 +67,7 @@ typedef struct ablkcipher_data {
 	struct ablkcipher_request * dreq;
 	struct crypto_ablkcipher * tfm;
 
-	struct scatterlist esrc, edst, ddst;
+    struct sg_table esrc, edst, ddst;
 	
 } ablk_d;
 
@@ -103,13 +110,26 @@ typedef struct test_elem {
 	
 } telem;
 
+typedef struct text_data {
+
+	uint id;
+	char * text;
+	uint len;
+
+	struct list_head elem;
+
+} text;
+	
 typedef struct test_data {
 	
-	char * text;
-	char * key;
 	
+	char * key;
 	klen keylen;
-	uint txtlen;
+	
+	struct list_head texts;
+	uint text_num;
+
+	uint nbytes;
 	
 	void * spec;
 	

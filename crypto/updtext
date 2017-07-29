@@ -1,0 +1,25 @@
+#!/bin/bash
+
+if [ ! -c /dev/cryptotest ]; then
+	./dotestdev
+fi
+
+if [ ! -z "$1" ]; then
+    tid="$1"
+else
+	echo "Please provide the ID of the text to update, aborting"
+	exit 1;
+fi
+
+if [ ! -z "$2" ]; then
+	jid="$2"
+fi
+
+read -p "Enter the new text: " text
+./sendpar -t "$text"
+
+if [ ! -z "$jid" ]; then
+	./sendcmd "5,$tid"
+else
+	./sendcmd "5,$tid,$jid"
+fi

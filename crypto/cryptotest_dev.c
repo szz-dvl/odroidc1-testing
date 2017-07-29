@@ -15,12 +15,22 @@ static ssize_t text_receive ( struct file * file, const char *buff, size_t len, 
 static ssize_t text_send ( struct file * file, char __user *buff, size_t len, loff_t * off );
 static ssize_t key_receive ( struct file * file, const char *buff, size_t len, loff_t * off );
 static ssize_t key_send ( struct file * file, char __user *buff, size_t len, loff_t * off );
+static ssize_t size_receive ( struct file * file, const char *buff, size_t len, loff_t * off );
+static ssize_t size_send ( struct file * file, char __user *buff, size_t len, loff_t * off );
 static tjob * init_job (telem * node, command * cmd);
 static tjob * get_job (telem * node, command * cmd);
 static int run_test (void * node_ptr);
 static void free_nodes (telem * nodes []);
 static telem * get_min_node (void);
-	
+static bool cpy_texts ( tjob * job );
+static void destroy_texts (struct list_head * head);
+static tjob * get_job_by_id ( uint jid );
+static text * get_text_by_id ( uint tid, struct list_head * head );
+static bool add_text ( int jid );
+static bool update_text ( uint tid, int jid );
+static bool remove_text ( uint tid, int jid );
+static bool print_texts ( int jid );
+
 static struct file_operations fops = {
 	.write = dev_receive,
 	/* .read = dev_send */
@@ -38,92 +48,32 @@ static struct file_operations text_fops = {
 	.open = par_open
 };
 
+static struct file_operations size_fops = {
+	.write = size_receive,
+	.read = size_send,
+	.open = par_open
+};
+
 LIST_HEAD(node_list);
+LIST_HEAD(texts_list);
 
 static spinlock_t text_lock;
 static spinlock_t key_lock;
+static spinlock_t size_lock;
 
-static unsigned int major, job_id = 0;
+static unsigned int major, job_id = 0, text_id = 0;
 struct dentry *root;
 
 static unsigned int keylen, textlen;
 static char key [KEY_SIZE_MAX];
-static char * text;
+static char * text_data;
 static uint mode;
 
+static unsigned long long max_size = UINT_MAX;
+static unsigned long long glob_size = 4 * 1024;
+static char hr_size [32] = "4K";
+
 uint verbose = 0;
-
-static void free_spec ( tjob * job ) {
-	
-	switch (job->tnum)
-		{
-
-		case CRYPTO_AES:
-			{
-				skcip_d * spec_data = job->data->spec;
-				struct ablkcipher_request * ereq;
-				struct ablkcipher_request * dreq;
-				
-				if (spec_data->tfm)
-					crypto_free_ablkcipher (spec_data->tfm);
-
-				if (spec_data->ereq) {
-
-					ereq = &spec_data->ereq->creq;
-					
-					if (sg_dma_address(ereq->src))
-						dma_free_coherent(NULL, job->data->txtlen, sg_virt(ereq->src), sg_dma_address(ereq->src));
-				
-					if (sg_dma_address(ereq->dst))
-						dma_free_coherent(NULL, job->data->txtlen, sg_virt(ereq->dst), sg_dma_address(ereq->dst));
-				
-					kfree(spec_data->ereq->giv);
-					skcipher_givcrypt_free (spec_data->ereq);
-				}
-
-				if (spec_data->dreq) {
-
-					dreq = &spec_data->dreq->creq;
-					
-					if (sg_dma_address(dreq->dst))
-						dma_free_coherent(NULL, job->data->txtlen, sg_virt(dreq->dst), sg_dma_address(dreq->dst));
-					
-					skcipher_givcrypt_free (spec_data->dreq);
-				}
-				
-				kfree(job->data->spec);
-			}
-		    return;
-				
-		case CRYPTO_TDES:
-			return;
-
-		case CRYPTO_CRC:
-			return;
-			
-		case CRYPTO_DIVX:
-			return;
-		}
-}
-
-
-void destroy_job ( tjob * job ) {
-	
-	list_del(&job->elem);
-
-	spin_lock (&job->parent->lock);
-	job->parent->pending --;
-	spin_unlock (&job->parent->lock);
-	
-	free_spec(job);
-	
-	if (job->data->key)
-		kfree(job->data->key);
-	
-	kfree(job->data->text);
-	kfree(job->data);
-	kfree(job);
-}
 
 static bool register_debugfs (void) {
 
@@ -145,6 +95,10 @@ static bool register_debugfs (void) {
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 
+	d = debugfs_create_u32("text_id", S_IRUGO, root, (u32 *)&text_id);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
 	d = debugfs_create_u32("keylen", S_IRUGO, root, (u32 *)&keylen);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
@@ -156,12 +110,16 @@ static bool register_debugfs (void) {
 	d = debugfs_create_u32("mode", S_IRUGO | S_IWUSR, root, (u32 *)&mode);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
+
+	d = debugfs_create_file("glob_size", S_IRUGO | S_IWUSR, root, hr_size, &size_fops);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
 	
 	d = debugfs_create_file("key", S_IRUGO | S_IWUSR, root, key, &key_fops);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 
-	d = debugfs_create_file("text", S_IRUGO | S_IWUSR, root, text, &text_fops);
+	d = debugfs_create_file("text", S_IRUGO | S_IWUSR, root, text_data, &text_fops);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 
@@ -172,16 +130,184 @@ static bool register_debugfs (void) {
 	return false;
 }
 
+static void free_spec ( tjob * job ) {
+	
+	switch (job->tnum)
+		{
+
+		case CRYPTO_AES:
+			{
+				skcip_d * spec_data = job->data->spec;
+				struct ablkcipher_request * ereq;
+				struct ablkcipher_request * dreq;
+				struct scatterlist * aux;
+
+				if (spec_data->ereq) {
+
+					ereq = &spec_data->ereq->creq;
+					aux = ereq->src;
+
+					while (aux) {
+						
+						if (sg_dma_address(aux)) {
+							
+							dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+							aux = sg_next(aux);
+								
+						} else
+							break;
+						
+					}
+
+					sg_free_table(&spec_data->esrc);
+
+					aux = ereq->dst;
+					while (aux) {
+						
+						if (sg_dma_address(aux)) {
+							
+							dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+							aux = sg_next(aux);
+							
+						} else
+							break;
+						
+					}
+
+					sg_free_table(&spec_data->edst);
+
+					if (spec_data->ereq->giv)
+						kfree(spec_data->ereq->giv);
+					
+					skcipher_givcrypt_free (spec_data->ereq);
+				}
+
+				if (spec_data->dreq) {
+
+					dreq = &spec_data->dreq->creq;
+					aux = dreq->dst;
+						
+					while (aux) {
+
+						if (sg_dma_address(aux)) {
+							
+							dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+							aux = sg_next(aux);
+								
+						} else
+							break;
+						
+					}
+
+					sg_free_table(&spec_data->ddst);
+					
+					skcipher_givcrypt_free (spec_data->dreq);
+				}
+
+				if (spec_data->tfm)
+					crypto_free_ablkcipher (spec_data->tfm);
+				
+				kfree(job->data->spec);
+			}
+		    return;
+				
+		case CRYPTO_TDES:
+			return;
+
+		case CRYPTO_CRC:
+			return;
+			
+		case CRYPTO_DIVX:
+			return;
+			
+		default:
+			return;
+		}
+}
+
+
+void destroy_job ( tjob * job ) {
+	
+	list_del(&job->elem);
+
+	spin_lock (&job->parent->lock);
+	job->parent->pending --;
+	spin_unlock (&job->parent->lock);
+	
+	free_spec(job);
+	
+	if (job->data->key)
+		kfree(job->data->key);
+
+	destroy_texts(&job->data->texts);
+	kfree(job->data);
+	kfree(job);
+}
+
+static ssize_t size_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {
+
+	char * my_size = hr_size;
+	
+	if (*off >= 32) 
+		return 0;
+	
+	if (*off + len > 32)
+		len = 32 - *off;
+
+	spin_lock (&size_lock);
+
+	memset(my_size, 0, sizeof(hr_size));
+	
+	if (copy_from_user(hr_size + *off, buff, len))
+		return -EFAULT;
+	
+	glob_size = memparse(my_size, &my_size);
+
+	if (glob_size > max_size) {
+		
+		pr_warn("Size %s (%llu Bytes) is greater than the maximum allowed (~4G, %u Bytes), setting up PAGE_SIZE (4K, %lu Bytes).\n", hr_size, glob_size, UINT_MAX, PAGE_SIZE);
+
+		memset(hr_size, 0, sizeof(hr_size));
+		
+		hr_size[0] = '4';
+		hr_size[1] = 'K';
+		
+		glob_size = PAGE_SIZE;
+	}
+
+	spin_unlock (&size_lock);
+	
+	*off += len;
+	
+	return len;
+}
+
+static ssize_t size_send ( struct file * file, char __user *buff, size_t len, loff_t * off ) {
+
+	if (*off >= 32)
+		return 0;
+	
+	if (*off + len > 32)
+		len = 32 - *off;
+	
+	if (copy_to_user(buff, hr_size + *off, sizeof(hr_size)))
+		return -EFAULT;
+	
+	*off += len;
+	
+	return len;
+}
+
 static ssize_t text_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {	
 
 	spin_lock (&text_lock);
 	
-	if (text)
-		kfree(text);
+	if (text_data)
+		kfree(text_data);
 
-	text = (char *) kzalloc (len, GFP_KERNEL);
+    text_data = (char *) kzalloc (len, GFP_KERNEL);
 		
-	if (copy_from_user(text + *off, buff, len))
+	if (copy_from_user(text_data + *off, buff, len))
 		return -EFAULT;
 
 	spin_unlock (&text_lock);
@@ -194,8 +320,8 @@ static ssize_t text_receive ( struct file * file, const char *buff, size_t len, 
 
 static ssize_t text_send ( struct file * file, char __user *buff, size_t len, loff_t * off ) {
 
-	char * mytext = text ? text : "";
-	size_t mysize = text ? textlen : 1;
+	char * mytext = text_data ? : "";
+	size_t mysize = text_data ? textlen : 1;
 	
 	if (*off >= mysize)
 		return 0;
@@ -213,6 +339,10 @@ static ssize_t text_send ( struct file * file, char __user *buff, size_t len, lo
 
 static ssize_t key_receive ( struct file * file, const char *buff, size_t len, loff_t * off ) {	
 
+	if (*off >= KEY_SIZE_MAX) 
+		return 0;
+	
+	spin_lock (&key_lock);
 
 	switch (len) {
 	case KEY_SIZE_8B:
@@ -233,13 +363,8 @@ static ssize_t key_receive ( struct file * file, const char *buff, size_t len, l
 		return 0;
 	}
 
-	if (*off >= KEY_SIZE_MAX) 
-		return 0;
-	
 	if (*off + len > keylen)
 		len = keylen - *off;
-	
-	spin_lock (&key_lock);
 	
 	memset(key, 0, KEY_SIZE_MAX);
 	
@@ -290,10 +415,11 @@ static void free_nodes (telem * nodes []) {
 			
 			list_for_each_entry_safe (cmd, temp, &node->cmd_list, elem) {
 
-				node->pending --;
 			    list_del(&cmd->elem);
 				kfree(cmd);
 			}
+
+			nodes[i] = NULL;
 		}
 	}
 }
@@ -382,7 +508,67 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	return len;
 }
 
-tjob * init_job (telem * node, command * cmd) {
+static void destroy_texts (struct list_head * head) {
+
+	text * txt, * temp;
+
+	list_for_each_entry_safe (txt, temp, head, elem) { 
+					
+		list_del(&txt->elem);
+		kfree(txt->text);
+		kfree(txt);
+	}
+
+}
+
+static bool cpy_texts ( tjob * job ) {
+
+	text * txt, * temp, * new;
+
+	INIT_LIST_HEAD (&job->data->texts);
+	
+	list_for_each_entry(txt, &texts_list, elem) { 
+
+	    new = (text *) kzalloc(sizeof(text), GFP_KERNEL);
+
+		if (!new) {
+
+			pr_err("%s: Error copying text.\n", __func__);
+		    goto out;
+		}
+
+		new->text = (char *) kzalloc (txt->len, GFP_KERNEL);
+		
+		if (!new->text) {
+			
+			pr_err("%s: Error copying new text.\n", __func__);
+			kfree(new);
+			goto out;
+		}
+		
+		strncpy(new->text, txt->text, txt->len);
+		new->len = txt->len;
+		new->id = txt->id;
+		
+		list_add_tail(&new->elem, &job->data->texts);
+		job->data->text_num ++;
+	}
+	
+	return true;
+	
+ out:
+	
+	list_for_each_entry_safe (txt, temp, &job->data->texts, elem) { 
+					
+		list_del(&txt->elem);
+		kfree(txt->text);
+		kfree(txt);
+	}
+	
+	return false;
+}
+
+static tjob * init_job (telem * node, command * cmd) {
 	
 	tjob * job = (tjob *) kzalloc(sizeof(tjob), GFP_KERNEL);
 	
@@ -424,24 +610,18 @@ tjob * init_job (telem * node, command * cmd) {
 		return NULL;
 	}
 
-	if (textlen) {
+	spin_lock (&size_lock);
+	job->data->nbytes = glob_size;
+	spin_unlock (&size_lock);
+	
+	if (!list_empty(&texts_list)) {
 		
-		job->data->text = (char *) kzalloc (textlen, GFP_KERNEL);
-		if (!job->data->text) {
-			
-			pr_err("%u >> Error allocating job text.\n", job->id);
-			kfree(job->data);
-			kfree(job);
-
-			return NULL;
-		}
-		
-		spin_lock (&text_lock);
-		strncpy(job->data->text, text, textlen);
-		job->data->txtlen = textlen;
-		spin_unlock (&text_lock);
+		if (!cpy_texts(job))
+			goto no_text;
 		
 	} else {
+
+	no_text:
 
 		pr_err("%u >> No text found, aborting.\n", job->id);
 		kfree(job->data);
@@ -458,7 +638,7 @@ tjob * init_job (telem * node, command * cmd) {
 			if (!job->data->key) {
 				
 				pr_err("%u >> Error allocating job key.\n", job->id);
-				kfree(job->data->text);
+			    destroy_texts(&job->data->texts);
 				kfree(job->data);
 				kfree(job);
 
@@ -473,7 +653,7 @@ tjob * init_job (telem * node, command * cmd) {
 		} else {
 
 			pr_err("%u >> No key found, aborting.\n", job->id);
-			kfree(job->data->text);
+			destroy_texts(&job->data->texts);
 			kfree(job->data);
 			kfree(job);
 
@@ -485,47 +665,232 @@ tjob * init_job (telem * node, command * cmd) {
 	node->pending ++;
 	list_add_tail(&job->elem, &node->jobs);
 	spin_unlock(&node->lock);
-	
+
+	pr_info ("%u >> New job created, max length: %s (%u Bytes), text_num: %u", job->id, hr_size, job->data->nbytes, job->data->text_num);
 	return job;
 }
 
-tjob * get_job (telem * node, command * cmd) {
-	
+static tjob * get_job_by_id ( uint jid ) {
+
+	telem * node;
 	tjob * job;
+	
+	list_for_each_entry(node, &node_list, elem) { 
+				
+		list_for_each_entry (job, &node->jobs, elem) {
+			
+			if (job->id == jid) 
+				return job;
+		}
+	}
+
+	return NULL;
+}
+
+static tjob * get_job (telem * node, command * cmd) {
 	
 	if ((cmd->tnum == CRYPTO_AES || cmd->tnum == CRYPTO_TDES) && cmd->args == 1) {
 
-		if (cmd->jid >= 0) {
-			
-			list_for_each_entry(node, &node_list, elem) { 
-				
-				list_for_each_entry (job, &node->jobs, elem) {
-					
-					if (job->id == cmd->jid) {
-						job->args = 1;
-						return job;
-					}
-						
-				}
-			}
-			
-			return NULL;
-			
-		} else {
+		if (cmd->jid >= 0) 
+			return get_job_by_id (cmd->jid);
+		
+		else {
 
 			pr_info("Node %u: Bad jid (%d) provided.\n", node->id, cmd->jid);
 			return NULL;
 		}
-
+		
 	} else
 		return init_job( node, cmd );
+}
+
+static text * get_text_by_id ( uint tid, struct list_head * head ) {
+
+	text * txt;
 	
+	list_for_each_entry(txt, head, elem) { 
+					
+		if (txt->id == tid) 
+			return txt;
+		
+	}
+
+	return NULL;
+}
+
+static bool add_text ( int jid ) {
+
+	text * txt;
+	struct list_head * head = &texts_list;
+	tjob * job;
+	
+	if (jid >= 0) {
+
+		job = get_job_by_id (jid);
+
+		if (job)
+			head = &job->data->texts; 
+
+		else {
+
+			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
+			return false;
+		}
+	}
+	
+    txt = (text *) kzalloc(sizeof(text), GFP_KERNEL);
+
+	if (!txt) {
+
+		pr_err("%s: Error allocating new text.\n", __func__);
+		return false;
+	}
+		
+	spin_lock (&text_lock);
+
+	txt->text = (char *) kzalloc (textlen, GFP_KERNEL);
+	
+	if (!txt->text) {
+			
+		pr_err("%s: Error allocating new text.\n", __func__);
+		kfree(txt);
+	    return false;
+	}
+		
+	
+	strncpy(txt->text, text_data, textlen);
+    txt->len = textlen;
+	txt->id = text_id ++;
+	
+	spin_unlock (&text_lock);
+
+	list_add_tail (&txt->elem, head);		
+
+	return true;
+}
+
+static bool update_text ( uint tid, int jid ) {
+
+	text * txt;
+	struct list_head * head = &texts_list;
+	tjob * job;
+	
+	if (jid >= 0) {
+
+		job = get_job_by_id (jid);
+
+		if (job)
+			head = &job->data->texts; 
+
+		else {
+
+			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
+			return false;
+		}
+	}
+
+	txt = get_text_by_id (tid, head);
+
+	if (!txt) {
+
+		pr_err("%s: Bad tid (%u) provided.\n", __func__, tid);
+		return false;
+	}
+
+	kfree (txt->text);
+	
+	spin_lock (&text_lock);
+	
+	txt->text = (char *) kzalloc (textlen, GFP_KERNEL);
+	
+	if (!txt->text) {
+			
+		pr_err("%s: Error allocating text memory.\n", __func__);
+		txt->len = 0;
+	    return false;
+	}
+		
+	
+	strncpy(txt->text, text_data, textlen);
+    txt->len = textlen;
+	spin_unlock (&text_lock);	
+
+	return true;
+}
+
+static bool remove_text ( uint tid, int jid ) {
+
+	text * txt;
+	struct list_head * head = &texts_list;
+	tjob * job;
+	
+	if (jid >= 0) {
+
+		job = get_job_by_id (jid);
+
+		if (job)
+			head = &job->data->texts; 
+
+		else {
+
+			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
+			return false;
+		}
+	}
+
+	txt = get_text_by_id (tid, head);
+
+	if (!txt) {
+
+		pr_err("%s: Bad tid (%u) provided.\n", __func__, tid);
+		return false;
+	}
+
+	list_del(&txt->elem);
+	kfree (txt->text);
+	kfree (txt);
+
+	return true;
+	
+}
+
+static bool print_texts ( int jid ) {
+
+	text * txt;
+	struct list_head * head = &texts_list;
+	tjob * job;
+	uint bytes = 0;
+	
+	if (jid >= 0) {
+
+		job = get_job_by_id (jid);
+
+		if (job)
+			head = &job->data->texts; 
+
+		else {
+
+			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
+			return false;
+		}
+	}
+	
+	list_for_each_entry(txt, head, elem) { 
+					
+		pr_info("%2u >> %-128.512s (%4u Bytes).\n", txt->id, txt->text, txt->len);
+		bytes += txt->len;
+	}
+
+	if (bytes)
+		pr_info("\nTOTAL: %u Bytes.\n", bytes);
+
+	return true;
 }
 
 static int run_test (void * node_ptr) {
 	
 	telem * node = (telem *) node_ptr;
-	tjob * job;
+	tjob * job = NULL;
     command * cmd, * temp;
 	int ret = true;
 
@@ -533,30 +898,33 @@ static int run_test (void * node_ptr) {
 
 		pr_info("Node %u: Running command %u (args: %d)\n", node->id, cmd->tnum, cmd->args);
 
-		if (cmd->tnum > CRYPTO_DIVX) {
+		if (cmd->tnum > PRINT_TEXTS) {
 
 			pr_err("Node %u: Bad command received %u.\n", node->id, cmd->tnum);
 			list_del(&cmd->elem);
 			kfree(cmd);
 			continue;
 		}
-		
-		job = get_job(node, cmd);
 
-		if (!job) {
-			
-			pr_err("Node %u: Failed to get job.\n", node->id);
-			list_del(&cmd->elem);
-			kfree(cmd);
-			continue;
+		if (cmd->tnum < TEXT_ADD) {
+
+			job = get_job(node, cmd);
+
+			if (!job) {
+				
+				pr_err("Node %u: Failed to get job.\n", node->id);
+				list_del(&cmd->elem);
+				kfree(cmd);
+				continue;
+			}
 		}
 		
-		switch (job->tnum) 
+		switch (cmd->tnum) 
 			{
 				
 			case CRYPTO_AES:
 				{
-					switch(job->args) {
+					switch(cmd->args) {
 					case 0:
 						ret = do_aes_encrypt ( job );
 						break;;
@@ -571,7 +939,7 @@ static int run_test (void * node_ptr) {
 				
 			case CRYPTO_TDES:
 				{
-					switch(job->args) {
+					switch(cmd->args) {
 					case 0:
 						ret = do_tdes_encrypt ( job );
 						break;;
@@ -586,7 +954,7 @@ static int run_test (void * node_ptr) {
 
 			case CRYPTO_CRC:
 				{
-					switch(job->args) {
+					switch(cmd->args) {
 					case 0:
 						ret = do_crc_update ( job );
 						break;;
@@ -601,16 +969,42 @@ static int run_test (void * node_ptr) {
 					ret = do_divx_decomp ( job );
 				}
 				break;;
-			
+
+				/* Text management */
+
+			case TEXT_ADD:
+				{ 
+					ret = add_text ( cmd->jid );
+				}
+				break;;
+
+			case TEXT_UPDATE:
+				{ 
+					ret = update_text ( cmd->args, cmd->jid );
+				}
+				break;;
+
+			case TEXT_REMOVE:
+				{ 
+					ret = remove_text ( cmd->args, cmd->jid );
+				}
+				break;;
+
+			case PRINT_TEXTS:
+				{ 
+					ret = print_texts ( cmd->jid );
+				}
+				break;;
+				
 			default: 
 			
-				pr_err("Invalid command requested: %u.\n", job->tnum);
+				pr_err("Invalid command requested: %u.\n", cmd->tnum);
 				ret = false;
 			
 			};
 	
 		if (!ret)
-			pr_err("Error running command (%u).\n", job->tnum);
+			pr_err("Error running command (%u).\n", cmd->tnum);
 		
 		list_del(&cmd->elem);
 		kfree(cmd);
@@ -661,7 +1055,8 @@ static int __init crypto_init(void)
 
 	spin_lock_init(&key_lock);
 	spin_lock_init(&text_lock);
-
+	spin_lock_init(&size_lock);
+	
 	for (i = 0; i < max_node; i++) {
 
 		node = (telem *) kzalloc(sizeof(telem), GFP_KERNEL);
@@ -718,6 +1113,7 @@ static void __exit crypto_exit(void)
 		kfree(node);
 	}
 
+	destroy_texts(&texts_list);
 	debugfs_remove_recursive(root);
 	unregister_chrdev ( major, "cryptotest" );
 }

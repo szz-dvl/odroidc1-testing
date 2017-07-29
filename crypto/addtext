@@ -1,0 +1,59 @@
+#!/bin/bash
+
+if [ ! -c /dev/cryptotest ]; then
+	./dotestdev
+fi
+
+positive() {
+
+	if [ ! -z "$1" ] && [ ! "$1" == "N" ] && [ ! "$1" == "NO" ] && [ ! "$1" == "n" ] && [ ! "$1" == "no" ]; then
+		echo "Y"
+	fi
+
+}
+
+finish() {
+
+	echo
+	read -p "Print texts? " answ
+	if [ $(positive "$answ") ]; then
+	    ./prtexts
+	fi
+
+	exit 0
+}
+
+trap 'finish' SIGINT SIGTERM
+
+if [ ! -z "$1" ]; then
+
+	./sendpar -t "$1"
+	if [ ! -z "$2" ]; then
+		./sendcmd "4,0,$2"
+	else
+		./sendcmd "4"
+	fi
+   
+else
+	while (true); do
+		
+		read -p "Enter a text: " text
+		read -p "Enter a jid: " jid
+		
+		if [ ! -z "$text" ]; then
+			
+			./sendpar -t "$text"
+			
+			if [ ! -z "$jid" ]; then
+				./sendcmd "4,0,$jid"
+			else
+				./sendcmd "4"
+				jid=""
+			fi
+			
+			text=""
+			echo "Text added, ID: $(( $(sudo cat /sys/kernel/debug/cryptotest/text_id) - 1 ))"
+		fi
+	
+	done
+fi

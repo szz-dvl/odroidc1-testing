@@ -2,6 +2,12 @@
 
 device="cryptotest"
 
+if [ -z $1 ]; then
+	nodes=4
+else
+	nodes=$1
+fi
+
 if [ -c /dev/${device} ]; then
 	sudo rmmod ${device}
 	sudo rm -rf /dev/${device}
@@ -9,7 +15,7 @@ fi
 
 make clean && make -j4
 sudo dmesg --clear
-sudo insmod ${device}.ko
+sudo insmod ${device}.ko max_node=${nodes}
 dmesg
 
 sudo mknod /dev/${device} c $(sudo cat /sys/kernel/debug/${device}/major) 1
