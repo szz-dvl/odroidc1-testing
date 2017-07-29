@@ -71,6 +71,7 @@ static uint mode;
 static unsigned long long max_size = UINT_MAX;
 static unsigned long long glob_size = 4 * 1024;
 static char hr_size [32] = "4K";
+static char text_usage[32] = "0 Bytes";
 
 uint verbose = 0;
 uint text_cnt = 0;
@@ -323,14 +324,21 @@ static ssize_t text_receive ( struct file * file, const char *buff, size_t len, 
 
 static ssize_t text_send ( struct file * file, char __user *buff, size_t len, loff_t * off ) {
 
-	char * mytext = text_data ? : "";
-	size_t mysize = text_data ? textlen : 1;
+	char * mytext = text_usage;
+	size_t mysize = 32;
+	text * txt;
+	uint bytes = 0;
 	
 	if (*off >= mysize)
 		return 0;
 	
 	if (*off + len > mysize)
 		len = mysize - *off;
+	
+	text_for_each (txt)  
+		bytes += txt->len;
+
+	snprintf(mytext, mysize, "%u Bytes", bytes);
 	
 	if (copy_to_user(buff, mytext + *off, mysize))
 		return -EFAULT;
