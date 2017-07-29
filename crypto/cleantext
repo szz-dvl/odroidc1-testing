@@ -6,7 +6,7 @@ fi
 
 while read line; do
 
-	tid=$(echo "$line" | awk -F ">>" '{print $1}' | awk -F "]" '{print $2}' | xargs)
+	tid=$(echo "$line" | awk -F ":" '{print $1}' | xargs)
 	./rmtext "$tid"
 
-done< <(./prtexts | head -n -2 | tail -n +2)
+done< <(./prtexts | head -n -2)

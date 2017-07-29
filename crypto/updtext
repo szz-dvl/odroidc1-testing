@@ -12,14 +12,10 @@ else
 fi
 
 if [ ! -z "$2" ]; then
-	jid="$2"
-fi
-
-read -p "Enter the new text: " text
-./sendpar -t "$text"
-
-if [ ! -z "$jid" ]; then
-	./sendcmd "5,$tid"
+	text="$2"
 else
-	./sendcmd "5,$tid,$jid"
+	read -p "Enter the new text: " text	
 fi
+
+./sendpar -t "$text"
+./sendcmd "5,$tid"

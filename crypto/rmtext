@@ -11,12 +11,4 @@ else
 	exit 1;
 fi
 
-if [ ! -z "$2" ]; then
-	jid="$2"
-fi
-
-if [ ! -z "$jid" ]; then
-	./sendcmd "6,$tid"
-else
-	./sendcmd "6,$tid,$jid"
-fi
+./sendcmd "6,$tid"

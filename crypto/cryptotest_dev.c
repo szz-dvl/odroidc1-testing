@@ -22,14 +22,13 @@ static tjob * get_job (telem * node, command * cmd);
 static int run_test (void * node_ptr);
 static void free_nodes (telem * nodes []);
 static telem * get_min_node (void);
-static bool cpy_texts ( tjob * job );
-static void destroy_texts (struct list_head * head);
+static void destroy_texts (void);
 static tjob * get_job_by_id ( uint jid );
-static text * get_text_by_id ( uint tid, struct list_head * head );
-static bool add_text ( int jid );
-static bool update_text ( uint tid, int jid );
-static bool remove_text ( uint tid, int jid );
-static bool print_texts ( int jid );
+static text * get_text_by_id ( uint tid );
+static bool add_text ( void );
+static bool update_text ( uint tid );
+static bool remove_text ( uint tid );
+static bool print_texts ( void );
 
 static struct file_operations fops = {
 	.write = dev_receive,
@@ -74,6 +73,7 @@ static unsigned long long glob_size = 4 * 1024;
 static char hr_size [32] = "4K";
 
 uint verbose = 0;
+uint text_cnt = 0;
 
 static bool register_debugfs (void) {
 
@@ -96,6 +96,10 @@ static bool register_debugfs (void) {
 	    goto err_reg;
 
 	d = debugfs_create_u32("text_id", S_IRUGO, root, (u32 *)&text_id);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("text_cnt", S_IRUGO, root, (u32 *)&text_cnt);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 
@@ -238,8 +242,7 @@ void destroy_job ( tjob * job ) {
 	
 	if (job->data->key)
 		kfree(job->data->key);
-
-	destroy_texts(&job->data->texts);
+	
 	kfree(job->data);
 	kfree(job);
 }
@@ -508,69 +511,30 @@ static ssize_t dev_receive ( struct file * file, const char *buff, size_t len, l
 	return len;
 }
 
-static void destroy_texts (struct list_head * head) {
+static void destroy_texts ( void ) {
 
-	text * txt, * temp;
+	text * txt;
 
-	list_for_each_entry_safe (txt, temp, head, elem) { 
+	text_for_each (txt) { 
 					
 		list_del(&txt->elem);
 		kfree(txt->text);
 		kfree(txt);
 	}
 
-}
-
-static bool cpy_texts ( tjob * job ) {
-
-	text * txt, * temp, * new;
-
-	INIT_LIST_HEAD (&job->data->texts);
-	
-	list_for_each_entry(txt, &texts_list, elem) { 
-
-	    new = (text *) kzalloc(sizeof(text), GFP_KERNEL);
-
-		if (!new) {
-
-			pr_err("%s: Error copying text.\n", __func__);
-		    goto out;
-		}
-
-		new->text = (char *) kzalloc (txt->len, GFP_KERNEL);
-		
-		if (!new->text) {
-			
-			pr_err("%s: Error copying new text.\n", __func__);
-			kfree(new);
-			goto out;
-		}
-		
-		strncpy(new->text, txt->text, txt->len);
-		new->len = txt->len;
-		new->id = txt->id;
-		
-		list_add_tail(&new->elem, &job->data->texts);
-		job->data->text_num ++;
-	}
-	
-	return true;
-	
- out:
-	
-	list_for_each_entry_safe (txt, temp, &job->data->texts, elem) { 
-					
-		list_del(&txt->elem);
-		kfree(txt->text);
-		kfree(txt);
-	}
-	
-	return false;
 }
 
 static tjob * init_job (telem * node, command * cmd) {
 	
-	tjob * job = (tjob *) kzalloc(sizeof(tjob), GFP_KERNEL);
+	tjob * job;
+
+	if (no_text) {
+		
+		pr_err("Node %u: No data found, aborting.\n", node->id);
+		return NULL;
+	}
+	
+	job = (tjob *) kzalloc(sizeof(tjob), GFP_KERNEL);
 	
 	if (!job) {
 		
@@ -598,7 +562,6 @@ static tjob * init_job (telem * node, command * cmd) {
 		return NULL;
 
 	}
-		
 	
 	job->data = (tdata * ) kzalloc (sizeof(tdata), GFP_KERNEL);
 
@@ -613,22 +576,8 @@ static tjob * init_job (telem * node, command * cmd) {
 	spin_lock (&size_lock);
 	job->data->nbytes = glob_size;
 	spin_unlock (&size_lock);
-	
-	if (!list_empty(&texts_list)) {
-		
-		if (!cpy_texts(job))
-			goto no_text;
-		
-	} else {
 
-	no_text:
-
-		pr_err("%u >> No text found, aborting.\n", job->id);
-		kfree(job->data);
-		kfree(job);
-
-		return NULL;	
-	}
+	job->data->text_num = text_cnt;
     	
 	if (job->tnum < CRYPTO_CRC) {
 		
@@ -638,7 +587,6 @@ static tjob * init_job (telem * node, command * cmd) {
 			if (!job->data->key) {
 				
 				pr_err("%u >> Error allocating job key.\n", job->id);
-			    destroy_texts(&job->data->texts);
 				kfree(job->data);
 				kfree(job);
 
@@ -653,7 +601,6 @@ static tjob * init_job (telem * node, command * cmd) {
 		} else {
 
 			pr_err("%u >> No key found, aborting.\n", job->id);
-			destroy_texts(&job->data->texts);
 			kfree(job->data);
 			kfree(job);
 
@@ -665,7 +612,7 @@ static tjob * init_job (telem * node, command * cmd) {
 	node->pending ++;
 	list_add_tail(&job->elem, &node->jobs);
 	spin_unlock(&node->lock);
-
+	
 	pr_info ("%u >> New job created, max length: %s (%u Bytes), text_num: %u", job->id, hr_size, job->data->nbytes, job->data->text_num);
 	return job;
 }
@@ -704,11 +651,11 @@ static tjob * get_job (telem * node, command * cmd) {
 		return init_job( node, cmd );
 }
 
-static text * get_text_by_id ( uint tid, struct list_head * head ) {
+static text * get_text_by_id ( uint tid ) {
 
 	text * txt;
 	
-	list_for_each_entry(txt, head, elem) { 
+    text_for_each (txt) { 
 					
 		if (txt->id == tid) 
 			return txt;
@@ -718,27 +665,9 @@ static text * get_text_by_id ( uint tid, struct list_head * head ) {
 	return NULL;
 }
 
-static bool add_text ( int jid ) {
+static bool add_text ( void ) {
 
-	text * txt;
-	struct list_head * head = &texts_list;
-	tjob * job;
-	
-	if (jid >= 0) {
-
-		job = get_job_by_id (jid);
-
-		if (job)
-			head = &job->data->texts; 
-
-		else {
-
-			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
-			return false;
-		}
-	}
-	
-    txt = (text *) kzalloc(sizeof(text), GFP_KERNEL);
+	text * txt = (text *) kzalloc(sizeof(text), GFP_KERNEL);
 
 	if (!txt) {
 
@@ -764,32 +693,15 @@ static bool add_text ( int jid ) {
 	
 	spin_unlock (&text_lock);
 
-	list_add_tail (&txt->elem, head);		
-
+    text_add(txt);		
+	text_cnt ++;
+	
 	return true;
 }
 
-static bool update_text ( uint tid, int jid ) {
+static bool update_text ( uint tid ) {
 
-	text * txt;
-	struct list_head * head = &texts_list;
-	tjob * job;
-	
-	if (jid >= 0) {
-
-		job = get_job_by_id (jid);
-
-		if (job)
-			head = &job->data->texts; 
-
-		else {
-
-			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
-			return false;
-		}
-	}
-
-	txt = get_text_by_id (tid, head);
+	text * txt = get_text_by_id (tid);
 
 	if (!txt) {
 
@@ -805,7 +717,7 @@ static bool update_text ( uint tid, int jid ) {
 	
 	if (!txt->text) {
 			
-		pr_err("%s: Error allocating text memory.\n", __func__);
+		pr_err("%s: Error allocating new text memory.\n", __func__);
 		txt->len = 0;
 	    return false;
 	}
@@ -818,27 +730,9 @@ static bool update_text ( uint tid, int jid ) {
 	return true;
 }
 
-static bool remove_text ( uint tid, int jid ) {
+static bool remove_text ( uint tid ) {
 
-	text * txt;
-	struct list_head * head = &texts_list;
-	tjob * job;
-	
-	if (jid >= 0) {
-
-		job = get_job_by_id (jid);
-
-		if (job)
-			head = &job->data->texts; 
-
-		else {
-
-			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
-			return false;
-		}
-	}
-
-	txt = get_text_by_id (tid, head);
+	text * txt = get_text_by_id (tid);;
 
 	if (!txt) {
 
@@ -849,35 +743,20 @@ static bool remove_text ( uint tid, int jid ) {
 	list_del(&txt->elem);
 	kfree (txt->text);
 	kfree (txt);
+	text_cnt --;
 
 	return true;
 	
 }
 
-static bool print_texts ( int jid ) {
+static bool print_texts ( void ) {
 
 	text * txt;
-	struct list_head * head = &texts_list;
-	tjob * job;
 	uint bytes = 0;
 	
-	if (jid >= 0) {
-
-		job = get_job_by_id (jid);
-
-		if (job)
-			head = &job->data->texts; 
-
-		else {
-
-			pr_err("%s: Bad jid (%u) provided.\n", __func__, jid);
-			return false;
-		}
-	}
-	
-	list_for_each_entry(txt, head, elem) { 
+    text_for_each(txt) { 
 					
-		pr_info("%2u >> %-128.512s (%4u Bytes).\n", txt->id, txt->text, txt->len);
+		pr_info("%2u: (%5u Bytes) %.128s %s\n", txt->id, txt->len, txt->text, txt->len > 128 ? "\e[44;1m...\e[0m" : "");
 		bytes += txt->len;
 	}
 
@@ -974,30 +853,30 @@ static int run_test (void * node_ptr) {
 
 			case TEXT_ADD:
 				{ 
-					ret = add_text ( cmd->jid );
+					ret = add_text ();
 				}
 				break;;
 
 			case TEXT_UPDATE:
 				{ 
-					ret = update_text ( cmd->args, cmd->jid );
+					ret = update_text ( cmd->args );
 				}
 				break;;
 
 			case TEXT_REMOVE:
 				{ 
-					ret = remove_text ( cmd->args, cmd->jid );
+					ret = remove_text ( cmd->args );
 				}
 				break;;
 
 			case PRINT_TEXTS:
 				{ 
-					ret = print_texts ( cmd->jid );
+					ret = print_texts ();
 				}
 				break;;
 				
 			default: 
-			
+				
 				pr_err("Invalid command requested: %u.\n", cmd->tnum);
 				ret = false;
 			
@@ -1113,7 +992,7 @@ static void __exit crypto_exit(void)
 		kfree(node);
 	}
 
-	destroy_texts(&texts_list);
+	destroy_texts();
 	debugfs_remove_recursive(root);
 	unregister_chrdev ( major, "cryptotest" );
 }

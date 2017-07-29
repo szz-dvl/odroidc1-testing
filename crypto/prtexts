@@ -4,4 +4,20 @@ if [ ! -c /dev/cryptotest ]; then
 	./dotestdev
 fi
 
-sudo dmesg --clear && ./sendcmd 7 && dmesg
+while read line; do
+	
+	clean="$(echo -e "$line" | awk -F "]" '{ s = ""; for (i = 2; i <= NF; i++) s = s$i; print s }')"
+	#echo "$clean"
+	
+	if [ -z "$clean" ]; then
+		check="$(echo "$line" | awk -F "]" '{print NF}')"
+		if [ "$check" == "1" ]; then
+			echo "$line" # total account of bytes
+		else
+			echo
+		fi
+	else
+		echo "$clean"
+	fi
+	
+done< <(sudo dmesg --clear && ./sendcmd 7 && dmesg | tail -n +2)

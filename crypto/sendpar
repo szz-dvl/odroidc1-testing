@@ -49,7 +49,7 @@ while true ; do
 done
 
 if [ ! -z $keylen ]; then
-   	echo -n "$(sudo dd if=/dev/hwrng bs=$(( $keylen / 2 )) count=1 2> /dev/null | xxd -p)" | sudo tee /sys/kernel/debug/cryptotest/key > /dev/null
+   	echo -n "$(sudo cat /dev/hwrng | tr -dc A-Za-z0-9 | head -c $keylen)" | sudo tee /sys/kernel/debug/cryptotest/key > /dev/null
 fi
 
 if [ ! -z "$text" ]; then

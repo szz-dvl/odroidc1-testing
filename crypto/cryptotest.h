@@ -177,4 +177,27 @@ bool do_crc_update ( tjob * job );
 bool do_divx_decomp ( tjob * job );
 
 /* Public params */
-extern uint verbose;
+extern uint verbose, text_cnt;
+extern struct list_head texts_list;
+
+#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+
+#define text_for_each(txt)											\
+    text * aux__;													\
+	list_for_each_entry_safe(txt, aux__, &texts_list, elem)
+
+#define text_add(txt)							\
+    list_add_tail (&txt->elem, &texts_list);
+
+#define no_text									\
+    list_empty_careful (&texts_list)
+
+#define sg_for_each(sgl, sg)					\
+	uint i__;									\
+	for_each_sg(sgl, sg, sg_nents(sgl), i__)
+
+/* Already initialized sg lists must be provided, destructive operation on pointers.*/
+#define sg_multi_each(src, dst)									\
+	for (; src || dst; src = sg_next(src), dst = sg_next(dst))
+	
+

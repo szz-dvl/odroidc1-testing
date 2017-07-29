@@ -20,22 +20,19 @@ static void aes_encrypt_cb (struct crypto_async_request *req, int err) {
 	skcip_d * spec_data = job->data->spec;
 	struct ablkcipher_request * myreq = &spec_data->ereq->creq;
 	struct scatterlist * src = myreq->src, * dst = myreq->dst;
-	text * txt;
 	
-	pr_info("%u >> AES encrypt finished.\n", job->id);
-	
-	if (verbose >= 2) {
-
-		list_for_each_entry (txt, &job->data->texts, elem) {
-
-			print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dst), txt->len);
-			pr_info("Original text: %s \n\n", (char *) sg_virt(src));
-			src = sg_next(src);
-		    dst = sg_next(dst);
+	sg_multi_each(src, dst) {
+		
+		if (verbose >= 3) {
+			
+			print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dst), sg_dma_len(dst));
+			pr_info("Original text: %s \n", (char *) sg_virt(src));
 			
 		}
 	}
-
+	
+	pr_warn("%u >> AES encrypt finished successfully.\n", job->id);
+	
 	if (job->args > 1)
 		do_aes_decrypt (job);
 	
@@ -48,53 +45,54 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 	struct ablkcipher_request * ereq = &spec_data->ereq->creq;
 	struct ablkcipher_request * dreq = &spec_data->dreq->creq;
 	struct scatterlist * src = dreq->src, * dst = dreq->dst, * orig = ereq->src;
-	uint len = dreq->nbytes;
-	text * txt;
+	uint len = dreq->nbytes, i = 0;
 	bool ok = true;
-	
-	
-    pr_info("%u >> AES decrypt finished.\n", job->id);
-	
-	list_for_each_entry (txt, &job->data->texts, elem) {
-		
-		if (memcmp(sg_virt(orig), sg_virt(dst), min(txt->len, len))) {
 
-			if (verbose >= 2) {
+	sg_multi_each(src, dst) {
 		
-				print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(src), txt->len);
-				print_hex_dump_bytes("Decrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dst), txt->len);
-				print_hex_dump_bytes("Original text:  ", DUMP_PREFIX_ADDRESS, sg_virt(orig), txt->len);
+		if (memcmp(sg_virt(orig), sg_virt(dst), min(sg_dma_len(dst), len))) {
 
-				pr_err("%u >> Text %u failed to process.\n\n", job->id, txt->id);
+			if (verbose >= 1) {
+
+				pr_err("%u >> Text %u failed to decrypt.\n", job->id, i);
+		   
+				print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(src), sg_dma_len(src));
+				print_hex_dump_bytes("Decrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dst), sg_dma_len(dst));
+				print_hex_dump_bytes("Original text:  ", DUMP_PREFIX_ADDRESS, sg_virt(orig), sg_dma_len(orig));
+
 			}
-
+			
 			ok = false;
 
 		} else {
 
 			if (verbose >= 2) {
-		
-				print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(src), txt->len);
-				pr_info("Decrypted text: %s\n", (char *) sg_virt(dst));
 
-				pr_warn("%u >> Text %u successfully processed!\n\n", job->id, txt->id);
+				pr_info("%u >> Text %u successfully decrypted.\n", job->id, i);
+				
+				if (verbose >= 3) {
+
+					print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(src), sg_dma_len(src));
+					pr_info("Decrypted text: %s\n", (char *) sg_virt(dst));
+
+					
+				}
 			}
 		}
 		
 		if (!ok)
 			break;
 
-		len -= sg_dma_len(orig);
+		len -= sg_dma_len(dst);
 		
-		src = sg_next(src);
-	    dst = sg_next(dst);
-		orig = sg_next(orig);	
+		orig = sg_next(orig);
+		i++;
 	}
 	
 	if (ok)
-		pr_warn("%u >> Texts successfully processed!\n", job->id);
+		pr_warn("%u >> AES decrypt successfully finished.\n", job->id);
 	else
-		pr_err("%u >> Texts failed to process.\n", job->id);
+		pr_err("%u >> AES decrypt finished with failures.\n", job->id);
 		
 	destroy_job(job);
 }
@@ -120,16 +118,16 @@ static bool sg_dma_map ( tjob * job, struct scatterlist * sg, uint len) {
 static bool job_map_text ( tjob * job, text * txt, struct scatterlist * src, struct scatterlist * dst ) {
 	
 	skcip_d * spec_data = job->data->spec;
-	
-	txt->len = ALIGN(txt->len, crypto_ablkcipher_alignmask(spec_data->tfm) + 1);
+    uint len = ALIGN(txt->len, crypto_ablkcipher_alignmask(spec_data->tfm) + 1);
 
-	if (sg_dma_map(job, src, txt->len)) 
-		memcpy(sg_virt(src), txt->text, txt->len);
-	else
+	if (sg_dma_map(job, src, len)) {
+		memset(sg_virt(src),0, len); /* Zero the buffer first. */
+		memcpy(sg_virt(src), txt->text, txt->len); /* Fill with info, alignment padded with zeroes */
+	} else
 	    return false;
 
-	if (sg_dma_map(job, dst, txt->len)) 
-		memset(sg_virt(dst),0, txt->len);
+	if (sg_dma_map(job, dst, len)) 
+		memset(sg_virt(dst),0, len);
 	else
 	    return false;
 
@@ -150,8 +148,8 @@ static bool job_map_texts ( tjob * job ) {
 	
 	dst = spec_data->edst.sgl;
 	src = spec_data->esrc.sgl;
-
-	list_for_each_entry (txt, &job->data->texts, elem) {
+	
+	text_for_each (txt) {
 		
 		if (!job_map_text (job, txt, src, dst))
 			return false;
@@ -203,7 +201,7 @@ bool do_aes_encrypt ( tjob * job ) {
 
 	if (job->tmode) {
 
-		skcipher_givcrypt_set_giv (spec_data->ereq, kzalloc(crypto_ablkcipher_crt(spec_data->tfm)->ivsize, GFP_KERNEL), 0);
+		skcipher_givcrypt_set_giv (spec_data->ereq, kzalloc(crypto_ablkcipher_ivsize(spec_data->tfm), GFP_KERNEL), 0);
 
 		if (!spec_data->ereq->giv) {
 
@@ -248,8 +246,7 @@ bool do_aes_encrypt ( tjob * job ) {
 bool do_aes_decrypt ( tjob * job ) {
 
     skcip_d * spec_data = job->data->spec;
-	struct scatterlist * dst;
-	text * txt;
+	struct scatterlist * dst, * aux, * src = spec_data->ereq->creq.dst;
 
 	if (sg_alloc_table(&spec_data->ddst, job->data->text_num, GFP_KERNEL))
 	    goto fail;
@@ -267,17 +264,17 @@ bool do_aes_decrypt ( tjob * job ) {
 	if (!spec_data->dreq)
 		goto fail;
 
-	/* skcipher_givcrypt_set_giv (spec_data->dreq, kzalloc(crypto_ablkcipher_crt(spec_data->tfm)->ivsize, GFP_KERNEL), 0); */
+	/* skcipher_givcrypt_set_giv (spec_data->dreq, kzalloc(crypto_ablkcipher_ivsize(spec_data->tfm)), GFP_KERNEL), 0); */
 	/* if (!spec_data->dreq->giv) */
 	/* 	goto fail; */
 
 	if (job->tmode)
 		skcipher_givcrypt_set_giv (spec_data->dreq, spec_data->ereq->giv, 0);
-
-	list_for_each_entry (txt, &job->data->texts, elem) {
+	
+	sg_for_each (src, aux) {
 		
-		if (sg_dma_map (job, dst, txt->len))
-			memset(sg_virt(dst), 0, txt->len);
+		if (sg_dma_map (job, dst, sg_dma_len(aux)))
+			memset(sg_virt(dst), 0, sg_dma_len(aux));
 		else
 			goto fail;
 

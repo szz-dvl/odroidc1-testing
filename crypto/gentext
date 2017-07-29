@@ -1,0 +1,24 @@
+#!/bin/bash
+
+if [ ! -c /dev/cryptotest ]; then
+	./dotestdev
+fi
+
+minsize=16
+maxsize=1024
+amount=1;
+
+if [ ! -z "$1" ]; then
+	amount="$1"
+fi
+
+if [ ! -z "$2" ]; then
+    maxsize="$2"
+fi
+
+for i in `seq 1 $amount`; do
+	
+	text="$(sudo cat /dev/hwrng | tr -dc [:print:][:blank:] | head -c $(( ( RANDOM % $(( maxsize - minsize )) ) + minsize )) )"
+	./addtext "$text"
+	
+done

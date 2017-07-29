@@ -28,28 +28,17 @@ trap 'finish' SIGINT SIGTERM
 if [ ! -z "$1" ]; then
 
 	./sendpar -t "$1"
-	if [ ! -z "$2" ]; then
-		./sendcmd "4,0,$2"
-	else
-		./sendcmd "4"
-	fi
+	./sendcmd "4"
    
 else
 	while (true); do
 		
 		read -p "Enter a text: " text
-		read -p "Enter a jid: " jid
 		
 		if [ ! -z "$text" ]; then
 			
 			./sendpar -t "$text"
-			
-			if [ ! -z "$jid" ]; then
-				./sendcmd "4,0,$jid"
-			else
-				./sendcmd "4"
-				jid=""
-			fi
+			./sendcmd "4"
 			
 			text=""
 			echo "Text added, ID: $(( $(sudo cat /sys/kernel/debug/cryptotest/text_id) - 1 ))"
