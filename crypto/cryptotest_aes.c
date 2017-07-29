@@ -102,7 +102,10 @@ static bool sg_dma_map ( tjob * job, struct scatterlist * sg, uint len) {
 	sg_set_buf(sg, dma_alloc_coherent(NULL,
 									  len,
 									  &sg_dma_address(sg),
-									  GFP_ATOMIC),
+									  GFP_ATOMIC), /* 
+													  A bug will arise if we set GFP_KERNEL here, it is commented in dma tests too, it is strange since it happens when freeing memory, 
+													  seems to me that addresses are not being properly translated. To be investigated. (Hint: page->virtual).  
+												   */
 			   len);
 	
 	if (dma_mapping_error(NULL, sg_dma_address(sg))) {
