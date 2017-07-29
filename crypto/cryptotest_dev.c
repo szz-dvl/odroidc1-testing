@@ -765,7 +765,7 @@ static bool print_texts ( void ) {
 	
     text_for_each(txt) { 
 					
-		pr_info("%2u: (%5u Bytes) %.128s %s %-32s\n", txt->id, txt->len, txt->text, txt->len > 128 ? "\e[44;1m(...)\e[0m" : " ", txt->len > 128 ? (txt->text + (txt->len - 32)) : " "); //\e[0m
+		pr_info("%2u: (%5u Bytes) %.128s %s %-32s\n", txt->id, txt->len, txt->text, txt->len > 128 ? "\e[44;1m(...)\e[0m" : " ", txt->len > 128 ? (txt->text + (txt->len - 32)) : " ");
 		bytes += txt->len;
 	}
 

@@ -45,12 +45,12 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 	struct ablkcipher_request * ereq = &spec_data->ereq->creq;
 	struct ablkcipher_request * dreq = &spec_data->dreq->creq;
 	struct scatterlist * src = dreq->src, * dst = dreq->dst, * orig = ereq->src;
-	uint len = dreq->nbytes, i = 0;
+	int len = dreq->nbytes, i = 0;
 	bool ok = true;
 
 	sg_multi_each(src, dst) {
 		
-		if (memcmp(sg_virt(orig), sg_virt(dst), min(sg_dma_len(dst), len))) {
+		if (memcmp(sg_virt(orig), sg_virt(dst), min(sg_dma_len(dst), (uint)len))) {
 
 			if (verbose >= 1) {
 
@@ -79,11 +79,11 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 				}
 			}
 		}
-		
-		if (!ok)
-			break;
 
 		len -= sg_dma_len(dst);
+		
+		if (!ok || len <= 0)
+			break;
 		
 		orig = sg_next(orig);
 		i++;
