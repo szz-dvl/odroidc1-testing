@@ -18,16 +18,17 @@ fi
 #                                   and it needs to be the id of the job holding the previous encryption. Available modes:
 #                                        * DES ECB = 3  (8 Bytes key)
 #                                        * DES CBC = 4  (8 Bytes key)
-#                                        * DDES ECB = 5 (16 Bytes key)
-#                                        * DDES CBC = 6 (16 Bytes key)
-#                                        * TDES ECB = 7 (24 Bytes key)
-#                                        * TDES CBC = 8 (24 Bytes key)
+#                                        * TDES ECB = 5 (24 Bytes key)
+#                                        * TDES CBC = 6 (24 Bytes key)
 #
 # CRYPTO_CRC:       (command = 2),  args will be interpreted as the subtest to be run, if update is requested (1) a jid (job id) is expected,
 #                                   and it needs to be the id of the job holding the previous updates. No mode expected.
 # CRYPTO_DIVX:      (command = 3),  No args expected. No mode expected.
 #
-# For all the commands above, if "times" parameter is provided the test will be run in parallel as many times as demanded. 
+# For all the commands above, if "times" parameter is provided the test will be run in parallel as many times as demanded.
+#
+# Note: DDES / 2DES soes not seems to be supported, to recover the implementation for DDES tests please see commit bc13c6a3c9b215427ebc343c7bb8a7e640c1b38d
+#       for tests and commit 39e4dc064e59eb94b4d543a7fd46fa6b5561470e for kernel.
 
 test=$(echo -n "$@" | xargs)
 
