@@ -80,7 +80,9 @@ typedef struct ablkcipher_data {
 typedef struct ahash_data {
 
 	struct ahash_request * req;
-	struct crypto_hash * tfm;
+	struct crypto_ahash * tfm;
+
+	uint updt_cnt;
 	
 } ahash_d;
 
@@ -153,7 +155,7 @@ typedef struct test_job {
 	ttype tnum;
     tmode tmode;
 	
-	uint args;
+	int args;
 	
 	struct list_head elem;
 	
@@ -182,6 +184,8 @@ bool do_tdes ( tjob * job ); /* Encrypt + Decrypt + Compare results */
 /* CRC */
 bool do_crc_digest ( tjob * job );
 bool do_crc_update ( tjob * job );
+bool do_crc_export ( tjob * job );
+bool do_crc_import ( tjob * job );
 
 /* DIVX*/
 bool do_divx_decomp ( tjob * job );

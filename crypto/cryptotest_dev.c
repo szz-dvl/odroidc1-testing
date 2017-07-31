@@ -1043,6 +1043,12 @@ static int run_test (void * node_ptr) {
 					case 0:
 						ret = do_crc_update ( job );
 						break;;
+					case 1:
+						ret = do_crc_import ( job );
+						break;;
+					case 2:
+						ret = do_crc_export ( job );
+						break;;
 				    default:
 						ret = do_crc_digest ( job );
 					}
