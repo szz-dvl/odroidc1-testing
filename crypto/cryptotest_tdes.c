@@ -10,7 +10,12 @@ static const char * to_alg_name ( tjob * job ) {
 	case CRYPTO_DES_ECB:
 		return "ecb(des)-hw";
 	case CRYPTO_DES_CBC:
-		return "cbc(des)-hw";	
+		return "cbc(des)-hw";
+	case CRYPTO_DDES_ECB:
+		return "ecb(ddes)-hw";
+	case CRYPTO_DDES_CBC:
+		return "cbc(ddes)-hw";
+		
 	default:
 		return "bad_alg.";
 	}
@@ -22,7 +27,8 @@ static void tdes_encrypt_cb (struct crypto_async_request *req, int err) {
     ablk_d * spec_data = job->data->spec;
 	struct ablkcipher_request * myreq = spec_data->ereq;
 	struct scatterlist * src = myreq->src, * dst = myreq->dst;
-
+	unsigned long diff = jiffies - job->stime;
+		
 	if (verbose >= 3) {
 		
 		sg_multi_each(src, dst) {
@@ -33,7 +39,7 @@ static void tdes_encrypt_cb (struct crypto_async_request *req, int err) {
 		}
 	}
 	
-	pr_warn("%u >> TDES encrypt finished successfully.\n", job->id);
+	pr_warn("%u >> TDES encrypt finished successfully in %u ns.\n", job->id, jiffies_to_usecs(diff));
 	
 	if (job->args > 1)
 		do_tdes_decrypt (job);
@@ -49,7 +55,8 @@ static void  tdes_decrypt_cb (struct crypto_async_request *req, int err) {
 	struct scatterlist * src = dreq->src, * dst = dreq->dst, * orig = ereq->src;
 	int len = dreq->nbytes, i = 0;
 	bool ok = true;
-
+	unsigned long diff = jiffies - job->stime;
+		
 	sg_multi_each(src, dst) {
 		
 		if (memcmp(sg_virt(orig), sg_virt(dst), min(sg_dma_len(dst), (uint)len))) {
@@ -93,7 +100,7 @@ static void  tdes_decrypt_cb (struct crypto_async_request *req, int err) {
 	}
 	
 	if (ok)
-		pr_warn("%u >> TDES decrypt successfully finished.\n", job->id);
+		pr_warn("%u >> TDES decrypt successfully finished in %u ns.\n", job->id, jiffies_to_usecs(diff));
 	else
 		pr_err("%u >> TDES decrypt finished with failures.\n", job->id);
 	
@@ -143,7 +150,8 @@ bool do_tdes_encrypt ( tjob * job ) {
 			sg_virt(spec_data->ereq->dst), sg_dma_address(spec_data->ereq->dst));
 	
     ablkcipher_request_set_callback (spec_data->ereq, 0, tdes_encrypt_cb, job);
-	
+
+	job->stime = jiffies;
 	if (crypto_ablkcipher_encrypt(spec_data->ereq) < 0)
 		goto fail;
 	
@@ -195,7 +203,8 @@ bool do_tdes_decrypt ( tjob * job ) {
 			sg_virt(spec_data->dreq->dst), sg_dma_address(spec_data->dreq->dst));
 	
     ablkcipher_request_set_callback (spec_data->dreq, 0, tdes_decrypt_cb, job);
-		
+
+	job->stime = jiffies;
 	if (crypto_ablkcipher_decrypt(spec_data->dreq) < 0)
 		goto fail;
 	

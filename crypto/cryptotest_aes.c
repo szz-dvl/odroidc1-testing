@@ -20,7 +20,8 @@ static void aes_encrypt_cb (struct crypto_async_request *req, int err) {
 	skcip_d * spec_data = job->data->spec;
 	struct ablkcipher_request * myreq = &spec_data->ereq->creq;
 	struct scatterlist * src = myreq->src, * dst = myreq->dst;
-
+	unsigned long diff = jiffies - job->stime;
+	
 	if (verbose >= 3) {
 		
 		sg_multi_each(src, dst) {
@@ -31,7 +32,7 @@ static void aes_encrypt_cb (struct crypto_async_request *req, int err) {
 		}
 	}
 	
-	pr_warn("%u >> AES encrypt finished successfully.\n", job->id);
+	pr_warn("%u >> AES encrypt finished successfully in %u ns.\n", job->id, jiffies_to_usecs(diff));
 	
 	if (job->args > 1)
 		do_aes_decrypt (job);
@@ -47,7 +48,8 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 	struct scatterlist * src = dreq->src, * dst = dreq->dst, * orig = ereq->src;
 	int len = dreq->nbytes, i = 0;
 	bool ok = true;
-
+	unsigned long diff = jiffies - job->stime;
+	
 	sg_multi_each(src, dst) {
 		
 		if (memcmp(sg_virt(orig), sg_virt(dst), min(sg_dma_len(dst), (uint)len))) {
@@ -90,7 +92,7 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 	}
 	
 	if (ok)
-		pr_warn("%u >> AES decrypt successfully finished.\n", job->id);
+		pr_warn("%u >> AES decrypt successfully finished in %u ns.\n", job->id, jiffies_to_usecs(diff));
 	else
 		pr_err("%u >> AES decrypt finished with failures.\n", job->id);
 	
@@ -157,6 +159,7 @@ bool do_aes_encrypt ( tjob * job ) {
 	
     skcipher_givcrypt_set_callback (spec_data->ereq, 0, aes_encrypt_cb, job);
 
+	job->stime = jiffies;
 	if (job->tmode) {
 		
 		if (crypto_skcipher_givencrypt(spec_data->ereq) < 0)
@@ -223,7 +226,8 @@ bool do_aes_decrypt ( tjob * job ) {
 			sg_virt(spec_data->dreq->creq.dst), sg_dma_address(spec_data->dreq->creq.dst));
 	
 	skcipher_givcrypt_set_callback (spec_data->dreq, 0, aes_decrypt_cb, job);
-	
+
+	job->stime = jiffies;
 	if (job->tmode) {
 
 		if (crypto_skcipher_givdecrypt(spec_data->dreq) < 0)

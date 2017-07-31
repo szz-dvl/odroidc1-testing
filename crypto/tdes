@@ -15,10 +15,15 @@ if [ ! -z $2 ]; then
 	verbose=$2
 fi
 
-if [ $mode -le 4 ]; then
-	key=24
-elif [ $mode -le 6 ]; then
-	key=8
-fi
+case $mode in
+	3 | 4) key=8;;
+	5 | 6) key=16;;
+	7 | 8) key=24;;
+	*) key=""
+esac
 
-sudo dmesg --clear && ./sendpar -v $verbose -m $mode -k $key && ./sendcmd 1,2 && dmesg
+if [ ! -z $key ]; then
+   sudo dmesg --clear && ./sendpar -v $verbose -m $mode -k $key && ./sendcmd 1,2 && dmesg
+else
+	echo "Bad mode found ($mode) for DES variants, aborting."
+fi

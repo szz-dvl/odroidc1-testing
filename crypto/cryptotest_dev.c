@@ -760,7 +760,7 @@ static tjob * init_job (telem * node, command * cmd) {
 	}
 
 	if ( ((job->tmode > CRYPTO_AES_CTR) && job->tnum == CRYPTO_AES) ||
-		 ((job->tmode < CRYPTO_TDES_ECB || job->tmode > CRYPTO_DES_CBC) && job->tnum == CRYPTO_TDES)) { 
+		 ((job->tmode < CRYPTO_DES_ECB || job->tmode > CRYPTO_TDES_CBC) && job->tnum == CRYPTO_TDES)) { 
 
 		pr_err("%u >> Bad mode found (%u), aborting.\n", job->id, mode);
 		kfree(job);
