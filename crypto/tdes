@@ -24,7 +24,7 @@ case $mode in
 esac
 
 if [ $text_bytes -eq 0 ]; then
-   ./gentext $(( $(RANDOM % 5) + 1))
+   ./gentext $(( (RANDOM % 5) + 1))
 fi
 
 if [ ! -z $key ]; then

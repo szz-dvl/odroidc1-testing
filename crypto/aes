@@ -17,7 +17,7 @@ if [ ! -z $2 ]; then
 fi
 
 if [ $text_bytes -eq 0 ]; then
-   ./gentext $(( $(RANDOM % 5) + 1))
+   ./gentext $(( (RANDOM % 5) + 1))
 fi
 
 for key in 16 24 32; do
