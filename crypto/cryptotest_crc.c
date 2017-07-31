@@ -2,6 +2,7 @@
 
 static bool init_crc (tjob * job) {
 
+	
 	return false;
 
 

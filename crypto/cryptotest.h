@@ -169,6 +169,7 @@ void destroy_job ( tjob * job );
 bool job_map_texts ( tjob * job );
 bool job_map_text ( tjob * job, text * txt, struct scatterlist * src, struct scatterlist * dst );
 bool sg_dma_map ( tjob * job, struct scatterlist * sg, uint len);
+text * get_text_by_id ( uint tid );
 
 /* AES */
 bool do_aes_encrypt ( tjob * job );

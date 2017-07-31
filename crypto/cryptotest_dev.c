@@ -24,7 +24,6 @@ static void free_nodes (telem * nodes []);
 static telem * get_min_node (void);
 static void destroy_texts (void);
 static tjob * get_job_by_id ( uint jid );
-static text * get_text_by_id ( uint tid );
 static bool add_text ( void );
 static bool update_text ( uint tid );
 static bool remove_text ( uint tid );
@@ -857,7 +856,7 @@ static tjob * get_job (telem * node, command * cmd) {
 		return init_job( node, cmd );
 }
 
-static text * get_text_by_id ( uint tid ) {
+text * get_text_by_id ( uint tid ) {
 
 	text * txt;
 	
@@ -939,7 +938,7 @@ static bool update_text ( uint tid ) {
 
 static bool remove_text ( uint tid ) {
 
-	text * txt = get_text_by_id (tid);;
+	text * txt = get_text_by_id (tid);
 
 	if (!txt) {
 
