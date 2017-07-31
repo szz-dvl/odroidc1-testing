@@ -5,13 +5,13 @@ if [ ! -c /dev/cryptotest ]; then
 fi
 
 while read line; do
-	
+
 	clean="$(echo -e "$line" | awk -F "]" '{ s = ""; for (i = 2; i <= NF; i++) s = s$i; print s }')"
 	#echo "$clean"
 	
 	if [ -z "$clean" ]; then
-		check="$(echo "$line" | awk -F "]" '{print NF}')"
-		if [ "$check" == "1" ]; then
+		check=$(( $(echo "$line" | awk -F "]" '{print NF}') ))
+		if [ $check -eq 1 ]; then
 			echo "$line" # total account of bytes
 		else
 			echo

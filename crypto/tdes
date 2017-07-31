@@ -2,11 +2,12 @@
 
 mode=3
 verbose=1 #Detailed Errors
-text_bytes=$(( $(sudo cat /sys/kernel/debug/cryptotest/text | cut -d ' ' -f 1) ))
 
 if [ ! -c /dev/cryptotest ]; then
 	./dotestdev
 fi
+
+text_bytes=$(( $(sudo cat /sys/kernel/debug/cryptotest/text | cut -d ' ' -f 1) ))
 
 if [ ! -z $1 ]; then
 	mode=$1

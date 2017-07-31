@@ -14,6 +14,7 @@
 #include <crypto/aes.h>
 #include <../crypto/internal.h>
 #include <crypto/skcipher.h>
+#include <crypto/hash.h>
 
 typedef enum test_type {
 	

@@ -7,6 +7,10 @@ fi
 while read line; do
 
 	tid=$(echo "$line" | awk -F ":" '{print $1}' | xargs)
-	./rmtext "$tid"
+	#echo "TID: $tid"
 
-done< <(./prtexts | head -n -2)
+	if [ ! -z $tid ]; then
+		./rmtext "$tid"
+	fi
+
+done< <(./prtexts | head -n -1)
