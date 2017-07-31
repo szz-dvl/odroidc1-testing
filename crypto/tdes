@@ -2,6 +2,7 @@
 
 mode=3
 verbose=1
+text_bytes=$(( $(sudo cat /sys/kernel/debug/cryptotest/text | cut -d ' ' -f 1) ))
 
 if [ ! -c /dev/cryptotest ]; then
 	./dotestdev
@@ -21,6 +22,10 @@ case $mode in
 	7 | 8) key=24;;
 	*) key=""
 esac
+
+if [ $text_bytes -eq 0 ]; then
+   ./gentext $(( $(RANDOM % 5) + 1))
+fi
 
 if [ ! -z $key ]; then
    sudo dmesg --clear && ./sendpar -v $verbose -m $mode -k $key && ./sendcmd 1,2 && dmesg

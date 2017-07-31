@@ -2,6 +2,7 @@
 
 mode=2 #CTR
 verbose=2
+text_bytes=$(( $(sudo cat /sys/kernel/debug/cryptotest/text | cut -d ' ' -f 1) ))
 
 if [ ! -c /dev/cryptotest ]; then
 	./dotestdev
@@ -15,7 +16,12 @@ if [ ! -z $2 ]; then
 	verbose=$2
 fi
 
+if [ $text_bytes -eq 0 ]; then
+   ./gentext $(( $(RANDOM % 5) + 1))
+fi
+
 for key in 16 24 32; do
 	sudo dmesg --clear && ./sendpar -v $verbose -m $mode -k $key && ./sendcmd 0,2 && dmesg
 	echo
 done
+
