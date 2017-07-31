@@ -16,8 +16,10 @@ fi
 #                                   
 # CRYPTO_TDES:      (command = 1),  args will be interpreted as the subtest to be run, if decryption is requested (1) a jid (job id) is expected,
 #                                   and it needs to be the id of the job holding the previous encryption. Available modes:
-#                                        * CBC = 3
-#                                        * ECB = 4
+#                                        * TDES ECB = 3
+#                                        * TDES CBC = 4
+#                                        * DES ECB = 5
+#                                        * DES CBC = 6
 #
 # CRYPTO_CRC:       (command = 2),  args will be interpreted as the subtest to be run, if update is requested (1) a jid (job id) is expected,
 #                                   and it needs to be the id of the job holding the previous updates. No mode expected.

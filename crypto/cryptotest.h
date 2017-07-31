@@ -36,9 +36,10 @@ typedef enum test_mode {
 	CRYPTO_AES_ECB,
 	CRYPTO_AES_CBC,
 	CRYPTO_AES_CTR,
+	CRYPTO_TDES_ECB,
 	CRYPTO_TDES_CBC,
-	CRYPTO_TDES_ECB
-	
+	CRYPTO_DES_ECB,
+	CRYPTO_DES_CBC
 } tmode;
 
 typedef enum key_sizes {
@@ -51,6 +52,7 @@ typedef enum key_sizes {
 	
 } klen;
 
+/* AES */
 typedef struct skcipher_data {
 
 	struct skcipher_givcrypt_request * ereq;
@@ -61,16 +63,18 @@ typedef struct skcipher_data {
 	
 } skcip_d;
 
+/* TDES */
 typedef struct ablkcipher_data {
 
-	struct ablkcipher_request * ereq;
-	struct ablkcipher_request * dreq;
-	struct crypto_ablkcipher * tfm;
+    struct ablkcipher_request * ereq;
+    struct ablkcipher_request * dreq;
+    struct crypto_ablkcipher * tfm;
 
-    struct sg_table esrc, edst, ddst;
+	struct sg_table esrc, edst, ddst;
 	
 } ablk_d;
 
+/* CRC */
 typedef struct ahash_data {
 
 	struct ahash_request * req;
@@ -78,13 +82,14 @@ typedef struct ahash_data {
 	
 } ahash_d;
 
+/* DIVX */
 typedef struct acomp_data {
 	
     struct acomp_req * req;
 	struct crypto_acomp * tfm;
 
 } acomp_d;
-	
+
 typedef struct cmd_grabber {
 	
 	struct list_head elem;
@@ -126,12 +131,11 @@ typedef struct test_data {
 	char * key;
 	klen keylen;
 	
-	struct list_head texts;
 	uint text_num;
 
 	uint nbytes;
 	
-	void * spec;
+    void * spec;
 	
 } tdata;
 
@@ -146,9 +150,9 @@ typedef struct test_job {
 	
 	ttype tnum;
     tmode tmode;
-
+	
 	uint args;
-
+	
 	struct list_head elem;
 	
 	unsigned long stime;	
@@ -158,7 +162,10 @@ typedef struct test_job {
 
 /* Public */
 void destroy_job ( tjob * job );
-	
+bool job_map_texts ( tjob * job );
+bool job_map_text ( tjob * job, text * txt, struct scatterlist * src, struct scatterlist * dst );
+bool sg_dma_map ( tjob * job, struct scatterlist * sg, uint len);
+
 /* AES */
 bool do_aes_encrypt ( tjob * job );
 bool do_aes_decrypt ( tjob * job );

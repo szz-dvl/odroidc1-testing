@@ -1,0 +1,24 @@
+#!/bin/bash
+
+mode=3
+verbose=1
+
+if [ ! -c /dev/cryptotest ]; then
+	./dotestdev
+fi
+
+if [ ! -z $1 ]; then
+	mode=$1
+fi
+
+if [ ! -z $2 ]; then
+	verbose=$2
+fi
+
+if [ $mode -le 4 ]; then
+	key=24
+elif [ $mode -le 6 ]; then
+	key=8
+fi
+
+sudo dmesg --clear && ./sendpar -v $verbose -m $mode -k $key && ./sendcmd 1,2 && dmesg

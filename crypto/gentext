@@ -7,18 +7,33 @@ fi
 minsize=16
 maxsize=1024
 amount=1;
+charset="[:print:]"
 
-if [ ! -z "$1" ]; then
-	amount="$1"
-fi
+if [ "$1" == "-a" ]; then
 
-if [ ! -z "$2" ]; then
-    maxsize="$2"
+	charset="[:alnum:]"
+	
+	if [ ! -z "$2" ]; then
+		amount="$2"
+	fi
+	
+	if [ ! -z "$3" ]; then
+		maxsize="$3"
+	fi
+	
+else
+	if [ ! -z "$1" ]; then
+		amount="$1"
+	fi
+	
+	if [ ! -z "$2" ]; then
+		maxsize="$2"
+	fi
 fi
 
 for i in `seq 1 $amount`; do
 	
-	text="$(sudo cat /dev/hwrng | tr -dc [:print:][:blank:] | head -c $(( ( RANDOM % $(( maxsize - minsize )) ) + minsize )) )"
+	text="$(sudo cat /dev/hwrng | tr -dc $charset[:blank:] | head -c $(( ( RANDOM % $(( maxsize - minsize )) ) + minsize )) )"
 	./addtext "$text"
 	
 done

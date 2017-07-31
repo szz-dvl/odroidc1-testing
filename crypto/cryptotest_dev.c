@@ -135,6 +135,114 @@ static bool register_debugfs (void) {
 	return false;
 }
 
+bool sg_dma_map ( tjob * job, struct scatterlist * sg, uint len) {
+	
+	sg_set_buf(sg, dma_alloc_coherent(NULL,
+									  len,
+									  &sg_dma_address(sg),
+									  GFP_ATOMIC), /*
+													 A bug will arise if we set GFP_KERNEL here, it is commented in tests too, it is strange since it happens when freeing memory,
+													 in interrupt context for dma memory. Seems to me that addresses are not being properly translated.
+													 To be investigated. (Hint: page->virtual).
+												   */
+			   len);
+	
+	if (dma_mapping_error(NULL, sg_dma_address(sg))) {
+		
+		pr_err("%u >> Dma allocation failed (%p, 0x%08x).\n", job->id, sg_virt(sg), sg_dma_address(sg));
+	    return false;
+		
+	} 
+	
+	return true;
+}
+
+bool job_map_text ( tjob * job, text * txt, struct scatterlist * src, struct scatterlist * dst ) {
+	
+    uint len;
+		
+	switch (job->tnum) {
+	case CRYPTO_AES:
+		{
+			skcip_d * spec_data = job->data->spec;
+			len = ALIGN(txt->len, crypto_ablkcipher_alignmask(spec_data->tfm) + 1);
+		}
+		break;
+	case CRYPTO_TDES:
+		{
+			ablk_d * spec_data = job->data->spec;
+			len = ALIGN(txt->len, crypto_ablkcipher_alignmask(spec_data->tfm) + 1);
+		}
+		break;
+	default:
+		return false;
+	}
+	
+	if (sg_dma_map(job, src, len)) {
+		
+		if (len != txt->len)
+			memset(sg_virt(src),0, len); /* Zero the buffer first. */
+
+		memcpy(sg_virt(src), txt->text, txt->len); /* Fill with info, alignment padded with zeroes */
+	} else
+	    return false;
+	
+	if (sg_dma_map(job, dst, len)) 
+		memset(sg_virt(dst),0, len);
+	else
+	    return false;
+
+	return true;
+}
+
+bool job_map_texts ( tjob * job ) {
+
+	struct scatterlist * dst, * src;
+	text * txt;
+
+	switch (job->tnum) {
+	case CRYPTO_AES:
+		{
+			skcip_d * spec_data = job->data->spec;
+			if (sg_alloc_table(&spec_data->edst, job->data->text_num, GFP_KERNEL))
+				return false;
+	
+			if (sg_alloc_table(&spec_data->esrc, job->data->text_num, GFP_KERNEL))
+				return false;
+			
+			dst = spec_data->edst.sgl;
+			src = spec_data->esrc.sgl;
+		}
+		break;
+	case CRYPTO_TDES:
+		{
+			ablk_d * spec_data = job->data->spec;
+		    if (sg_alloc_table(&spec_data->edst, job->data->text_num, GFP_KERNEL))
+				return false;
+	
+			if (sg_alloc_table(&spec_data->esrc, job->data->text_num, GFP_KERNEL))
+				return false;
+			
+			dst = spec_data->edst.sgl;
+			src = spec_data->esrc.sgl;
+		}
+		break;
+	default:
+		return false;
+	}
+		
+	text_for_each (txt) {
+		
+		if (!job_map_text (job, txt, src, dst))
+			return false;
+		
+		dst = sg_next(dst);
+		src = sg_next(src);
+	}
+	
+	return true;
+}
+
 static void free_spec ( tjob * job ) {
 	
 	switch (job->tnum)
@@ -150,63 +258,158 @@ static void free_spec ( tjob * job ) {
 				if (spec_data->ereq) {
 
 					ereq = &spec_data->ereq->creq;
-					aux = ereq->src;
-
-					while (aux) {
+					
+					if (spec_data->esrc.nents) {
 						
-						if (sg_dma_address(aux)) {
+						aux = ereq->src;
+
+						while (aux) {
 							
-							dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
-							aux = sg_next(aux);
+							if (sg_dma_address(aux)) {
 								
-						} else
-							break;
+								dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+								aux = sg_next(aux);
+								
+							} else
+								break;
 						
+						}
+
+						sg_free_table(&spec_data->esrc);
 					}
 
-					sg_free_table(&spec_data->esrc);
+					if (spec_data->edst.nents) {
 
-					aux = ereq->dst;
-					while (aux) {
+						aux = ereq->dst;
+						while (aux) {
 						
-						if (sg_dma_address(aux)) {
+							if (sg_dma_address(aux)) {
 							
-							dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
-							aux = sg_next(aux);
+								dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+								aux = sg_next(aux);
 							
-						} else
-							break;
+							} else
+								break;
 						
+						}
+
+						sg_free_table(&spec_data->edst);
 					}
-
-					sg_free_table(&spec_data->edst);
 
 					if (spec_data->ereq->giv)
 						kfree(spec_data->ereq->giv);
 					
 					skcipher_givcrypt_free (spec_data->ereq);
+
 				}
 
 				if (spec_data->dreq) {
 
 					dreq = &spec_data->dreq->creq;
-					aux = dreq->dst;
+					
+					if (spec_data->ddst.nents) {	
 						
-					while (aux) {
-
-						if (sg_dma_address(aux)) {
+						aux = dreq->dst;
+						
+						while (aux) {
 							
-							dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
-							aux = sg_next(aux);
+							if (sg_dma_address(aux)) {
+							
+								dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+								aux = sg_next(aux);
 								
-						} else
-							break;
+							} else
+								break;
 						
+						}
+
+						sg_free_table(&spec_data->ddst);
 					}
 
-					sg_free_table(&spec_data->ddst);
-					
 					skcipher_givcrypt_free (spec_data->dreq);
+				}
+				
+				if (spec_data->tfm)
+					crypto_free_ablkcipher (spec_data->tfm);
+
+				kfree(job->data->spec);
+			}	
+			return;
+
+		case CRYPTO_TDES:
+			{
+				ablk_d * spec_data = job->data->spec;
+				struct ablkcipher_request * ereq;
+				struct ablkcipher_request * dreq;
+				struct scatterlist * aux;
+				
+				if (spec_data->ereq) {
+
+					ereq = spec_data->ereq;
+					
+					if (spec_data->esrc.nents) {
+						
+						aux = ereq->src;
+						while (aux) {
+							
+							if (sg_dma_address(aux)) {
+								
+								dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+								aux = sg_next(aux);
+								
+							} else
+								break;
+						
+						}
+
+						sg_free_table(&spec_data->esrc);
+					}
+
+					if (spec_data->edst.nents) {
+
+						aux = ereq->dst;
+						while (aux) {
+						
+							if (sg_dma_address(aux)) {
+							
+								dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+								aux = sg_next(aux);
+							
+							} else
+								break;
+						
+						}
+
+						sg_free_table(&spec_data->edst);
+					}
+
+					kfree (ereq); /* ablkcipher_request_free (kzfree) fails. To be investigated. */
+				}
+
+				if (spec_data->dreq) {
+
+					dreq = spec_data->dreq;
+					
+					if (spec_data->ddst.nents) {
+												
+						aux = dreq->dst;
+						
+						while (aux) {
+							
+							if (sg_dma_address(aux)) {
+							
+								dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
+								aux = sg_next(aux);
+								
+							} else
+								break;
+						
+						}
+
+						sg_free_table(&spec_data->ddst);
+					}
+
+					kfree (dreq); /* ablkcipher_request_free (kzfree) fails. To be investigated. */
 				}
 
 				if (spec_data->tfm)
@@ -216,9 +419,6 @@ static void free_spec ( tjob * job ) {
 			}
 		    return;
 				
-		case CRYPTO_TDES:
-			return;
-
 		case CRYPTO_CRC:
 			return;
 			
@@ -557,14 +757,12 @@ static tjob * init_job (telem * node, command * cmd) {
 		job->tmode = mode;
 		job->args = cmd->args;
 		job->id = job_id ++;
-		
-		pr_info("Node %u: New job (%u) for %u.\n", node->id, job->id, job->tnum);
 	}
 
 	if ( ((job->tmode > CRYPTO_AES_CTR) && job->tnum == CRYPTO_AES) ||
-		 ((job->tmode < CRYPTO_TDES_CBC || job->tmode > CRYPTO_TDES_ECB) && job->tnum == CRYPTO_TDES)) { 
+		 ((job->tmode < CRYPTO_TDES_ECB || job->tmode > CRYPTO_DES_CBC) && job->tnum == CRYPTO_TDES)) { 
 
-		pr_err("%u >> Bad mode found, aborting.\n", job->id);
+		pr_err("%u >> Bad mode found (%u), aborting.\n", job->id, mode);
 		kfree(job);
 
 		return NULL;

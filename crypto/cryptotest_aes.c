@@ -20,14 +20,14 @@ static void aes_encrypt_cb (struct crypto_async_request *req, int err) {
 	skcip_d * spec_data = job->data->spec;
 	struct ablkcipher_request * myreq = &spec_data->ereq->creq;
 	struct scatterlist * src = myreq->src, * dst = myreq->dst;
-	
-	sg_multi_each(src, dst) {
+
+	if (verbose >= 3) {
 		
-		if (verbose >= 3) {
+		sg_multi_each(src, dst) {
 			
 			print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dst), sg_dma_len(dst));
 			pr_info("Original text: %s \n", (char *) sg_virt(src));
-			
+			pr_info("\t\t |------------------------------------------------------|\n");
 		}
 	}
 	
@@ -57,7 +57,9 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 				pr_err("%u >> Text %u failed to decrypt.\n", job->id, i);
 		   
 				print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(src), sg_dma_len(src));
+				pr_info("\t\t |------------------------------------------------------|\n");
 				print_hex_dump_bytes("Decrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(dst), sg_dma_len(dst));
+				pr_info("\t\t |------------------------------------------------------|\n");
 				print_hex_dump_bytes("Original text:  ", DUMP_PREFIX_ADDRESS, sg_virt(orig), sg_dma_len(orig));
 
 			}
@@ -74,8 +76,6 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 
 					print_hex_dump_bytes("Encrypted text: ", DUMP_PREFIX_ADDRESS, sg_virt(src), sg_dma_len(src));
 					pr_info("Decrypted text: %s\n", (char *) sg_virt(dst));
-
-					
 				}
 			}
 		}
@@ -93,76 +93,8 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 		pr_warn("%u >> AES decrypt successfully finished.\n", job->id);
 	else
 		pr_err("%u >> AES decrypt finished with failures.\n", job->id);
-		
+	
 	destroy_job(job);
-}
-
-static bool sg_dma_map ( tjob * job, struct scatterlist * sg, uint len) {
-	
-	sg_set_buf(sg, dma_alloc_coherent(NULL,
-									  len,
-									  &sg_dma_address(sg),
-									  GFP_ATOMIC), /* 
-													  A bug will arise if we set GFP_KERNEL here, it is commented in dma tests too, it is strange since it happens when freeing memory, 
-													  seems to me that addresses are not being properly translated. To be investigated. (Hint: page->virtual).  
-												   */
-			   len);
-	
-	if (dma_mapping_error(NULL, sg_dma_address(sg))) {
-		
-		pr_err("%u >> Dma allocation failed (%p, 0x%08x).\n", job->id, sg_virt(sg), sg_dma_address(sg));
-	    return false;
-		
-	} 
-	
-	return true;
-}
-
-static bool job_map_text ( tjob * job, text * txt, struct scatterlist * src, struct scatterlist * dst ) {
-	
-	skcip_d * spec_data = job->data->spec;
-    uint len = ALIGN(txt->len, crypto_ablkcipher_alignmask(spec_data->tfm) + 1);
-
-	if (sg_dma_map(job, src, len)) {
-		memset(sg_virt(src),0, len); /* Zero the buffer first. */
-		memcpy(sg_virt(src), txt->text, txt->len); /* Fill with info, alignment padded with zeroes */
-	} else
-	    return false;
-
-	if (sg_dma_map(job, dst, len)) 
-		memset(sg_virt(dst),0, len);
-	else
-	    return false;
-
-	return true;
-}
-
-static bool job_map_texts ( tjob * job ) {
-
-	skcip_d * spec_data = job->data->spec;
-	struct scatterlist * dst, * src;
-	text * txt;
-	
-	if (sg_alloc_table(&spec_data->edst, job->data->text_num, GFP_KERNEL))
-	    return false;
-	
-	if (sg_alloc_table(&spec_data->esrc, job->data->text_num, GFP_KERNEL))
-		return false;
-	
-	dst = spec_data->edst.sgl;
-	src = spec_data->esrc.sgl;
-	
-	text_for_each (txt) {
-		
-		if (!job_map_text (job, txt, src, dst))
-			return false;
-
-		dst = sg_next(dst);
-		src = sg_next(src);
-
-	}
-	
-	return true;
 }
 
 bool do_aes_encrypt ( tjob * job ) {
@@ -208,7 +140,7 @@ bool do_aes_encrypt ( tjob * job ) {
 
 		if (!spec_data->ereq->giv) {
 
-			pr_err("%u >> Failed to generate IVs.\n", job->id);
+			pr_err("%u >> Failed to allocate IVs.\n", job->id);
 			goto fail;
 			
 		}
@@ -250,16 +182,11 @@ bool do_aes_decrypt ( tjob * job ) {
 
     skcip_d * spec_data = job->data->spec;
 	struct scatterlist * dst, * aux, * src = spec_data->ereq->creq.dst;
-
-	if (sg_alloc_table(&spec_data->ddst, job->data->text_num, GFP_KERNEL))
-	    goto fail;
-	
-	dst = spec_data->ddst.sgl;
 	
 	if (crypto_ablkcipher_setkey(spec_data->tfm, (const u8 *) job->data->key, job->data->keylen)) {
 		
 		pr_err("%u >> Failed to set key.\n", job->id);
-		return false;
+	    return false;
 		
 	}
 
@@ -267,6 +194,11 @@ bool do_aes_decrypt ( tjob * job ) {
 	if (!spec_data->dreq)
 		goto fail;
 
+	if (sg_alloc_table(&spec_data->ddst, job->data->text_num, GFP_KERNEL))
+	    goto fail;
+	
+	dst = spec_data->ddst.sgl;
+	
 	/* skcipher_givcrypt_set_giv (spec_data->dreq, kzalloc(crypto_ablkcipher_ivsize(spec_data->tfm)), GFP_KERNEL), 0); */
 	/* if (!spec_data->dreq->giv) */
 	/* 	goto fail; */
@@ -311,22 +243,25 @@ bool do_aes_decrypt ( tjob * job ) {
 	if (spec_data->dreq) {
 		
 		struct ablkcipher_request * dreq = &spec_data->dreq->creq;
+
+		if (spec_data->ddst.nents) {
+
+			dst = dreq->dst;
 		
-		dst = dreq->dst;
-		
-		while (dst) {
+			while (dst) {
 				
-			if (sg_dma_address(dst)) {
-				
-				dma_free_coherent(NULL, sg_dma_len(dst), sg_virt(dst), sg_dma_address(dst));
-				dst = sg_next(dst);
-				
-			} else
-				break;
+				if (sg_dma_address(dst)) {
+					
+					dma_free_coherent(NULL, sg_dma_len(dst), sg_virt(dst), sg_dma_address(dst));
+					dst = sg_next(dst);
+					
+				} else
+					break;
 			
-		}
+			}
 		
-		sg_free_table(&spec_data->ddst);
+			sg_free_table(&spec_data->ddst);
+		}
 		
 		skcipher_givcrypt_free (spec_data->dreq);
 	}
@@ -335,9 +270,7 @@ bool do_aes_decrypt ( tjob * job ) {
 }
 
 bool do_aes ( tjob * job ) {
-
-	if ( !do_aes_encrypt( job ))
-		return false;
 	
-	return true;
+    return do_aes_encrypt( job );
+	
 }
