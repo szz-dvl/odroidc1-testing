@@ -255,6 +255,9 @@ static void free_spec ( tjob * job ) {
 				struct ablkcipher_request * dreq;
 				struct scatterlist * aux;
 
+				if (spec_data->tfm)
+					crypto_free_ablkcipher (spec_data->tfm);
+				
 				if (spec_data->ereq) {
 
 					ereq = &spec_data->ereq->creq;
@@ -328,9 +331,6 @@ static void free_spec ( tjob * job ) {
 
 					skcipher_givcrypt_free (spec_data->dreq);
 				}
-				
-				if (spec_data->tfm)
-					crypto_free_ablkcipher (spec_data->tfm);
 
 				kfree(job->data->spec);
 			}	
@@ -342,6 +342,9 @@ static void free_spec ( tjob * job ) {
 				struct ablkcipher_request * ereq;
 				struct ablkcipher_request * dreq;
 				struct scatterlist * aux;
+
+				if (spec_data->tfm)
+					crypto_free_ablkcipher (spec_data->tfm);
 				
 				if (spec_data->ereq) {
 
@@ -411,9 +414,6 @@ static void free_spec ( tjob * job ) {
 
 					kfree (dreq); /* ablkcipher_request_free (kzfree) fails. To be investigated. */
 				}
-
-				if (spec_data->tfm)
-					crypto_free_ablkcipher (spec_data->tfm);
 				
 				kfree(job->data->spec);
 			}
