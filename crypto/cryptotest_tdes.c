@@ -3,14 +3,18 @@
 static const char * to_alg_name ( tjob * job ) {
 
 	switch (job->tmode) {
+	case CRYPTO_DES_ECB:
+		return "ecb(des)-hw";
+	case CRYPTO_DES_CBC:
+		return "cbc(des)-hw";
+	case CRYPTO_DDES_ECB:
+		return "ecb(ddes)-hw";
+	case CRYPTO_DDES_CBC:
+		return "cbc(ddes)-hw";
 	case CRYPTO_TDES_ECB:
 		return "ecb(tdes)-hw";
 	case CRYPTO_TDES_CBC:
 		return "cbc(tdes)-hw";
-	case CRYPTO_DES_ECB:
-		return "ecb(des)-hw";
-	case CRYPTO_DES_CBC:
-		return "cbc(des)-hw";		
 	default:
 		return "bad_alg.";
 	}

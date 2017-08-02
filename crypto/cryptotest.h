@@ -39,8 +39,17 @@ typedef enum test_mode {
 	CRYPTO_AES_CTR,
 	CRYPTO_DES_ECB,
 	CRYPTO_DES_CBC,
+	CRYPTO_DDES_ECB,
+	CRYPTO_DDES_CBC,
 	CRYPTO_TDES_ECB,
-	CRYPTO_TDES_CBC
+	CRYPTO_TDES_CBC,
+
+	/* To save arguments */
+	
+	CRYPTO_CRC_UPDT,
+	CRYPTO_CRC_DIGST,
+	CRYPTO_CRC_IMPORT,
+	CRYPTO_CRC_EXPORT
 	
 } tmode;
 
@@ -81,7 +90,8 @@ typedef struct ahash_data {
 
 	struct ahash_request * req;
 	struct crypto_ahash * tfm;
-
+	struct scatterlist * src;
+	
 	uint updt_cnt;
 	
 } ahash_d;
