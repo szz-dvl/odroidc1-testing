@@ -1,6 +1,11 @@
 #include "cryptotest.h"
+#include <mach/am_regs.h>
 
 #define CRC_ALGNAME         "crc-32-hw"
+#define RESULT_INI          AIU_CRC_CTRL
+
+#define WR(data, addr)  *(volatile unsigned long *)(addr)=data
+#define RD(addr)        *(volatile unsigned long *)(addr)
 
 static bool is_initialized (tjob * job) {
 
@@ -15,20 +20,24 @@ static void crc_cb (struct crypto_async_request *req, int err) {
 	unsigned long diff = jiffies - job->stime;
 	struct ahash_request * myreq = spec_data->req;
 	struct scatterlist * aux;
+	uint i;
+	u32 * res = (u32 *) myreq->result;
 	
-	if (verbose >= 2){
+	if (verbose >= 2) {
 
 		sg_for_each (myreq->src, aux) {
 			
 			print_hex_dump_bytes("Content: ", DUMP_PREFIX_ADDRESS, sg_virt(aux), sg_dma_len(aux));
-			pr_info("\t\t |------------------------------------------------------|\n");
-			
+			pr_info("\t\t |------------------------------------------------------|\n");	
 		}
 	}
 	
-	pr_warn("%u >> CRC hash finished in %u ns, result = 0x%08x (%u).\n", job->id, jiffies_to_usecs(diff), (u32) *myreq->result, (u32) *myreq->result);
-
-	destroy_job(job);
+	pr_warn("%u >> CRC hash finished in %u ns, result = 0x%08x (%u) - [0x%08x].\n", job->id, jiffies_to_usecs(diff), (u32) *myreq->result, (u32) *myreq->result, (u32) RD(CBUS_REG_ADDR(0x2278)) );
+	
+	for (i = 1; i < 12; i++)
+		pr_info("%u >> CBUS (0x%04x) => (0x%08x, %5u) - (0x%08x, %5u).\n", job->id, RESULT_INI + (i - 1), res[i], res[i], (u32) RD(CBUS_REG_ADDR(RESULT_INI + (i - 1))), (u32) RD(CBUS_REG_ADDR(RESULT_INI + (i - 1))));
+	
+	destroy_job(job); /* In the driver CRC irq not arrived yet.. at least until now. */
 }
 
 static bool init_crc (tjob * job, bool init_drv) {
@@ -70,7 +79,7 @@ static bool init_crc (tjob * job, bool init_drv) {
 		
 	}
 	
-	ahash_request_set_crypt (spec_data->req, spec_data->src, kzalloc(crypto_ahash_digestsize(spec_data->tfm), GFP_KERNEL), job->data->nbytes);
+	ahash_request_set_crypt (spec_data->req, spec_data->src, kzalloc(crypto_ahash_digestsize(spec_data->tfm) * 12, GFP_KERNEL), job->data->nbytes); /* !!! */
 	if (!spec_data->req->result) {
 
 		pr_err("%u >> No result, aborting.\n", job->id);
