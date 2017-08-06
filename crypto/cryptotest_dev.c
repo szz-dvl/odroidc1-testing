@@ -792,10 +792,10 @@ static tjob * init_job (telem * node, command * cmd) {
 	if ( ((job->tmode > CRYPTO_AES_CTR) && job->tnum == CRYPTO_AES) ||
 		 ((job->tmode < CRYPTO_DES_ECB || job->tmode > CRYPTO_TDES_CBC) && job->tnum == CRYPTO_TDES) ||
 		 ((job->tmode < CRYPTO_CRC_UPDT || job->tmode > CRYPTO_CRC_EXPORT) && job->tnum == CRYPTO_CRC) ) { 
-
+		
 		pr_err("%u >> Bad mode found (%u), aborting.\n", job->id, mode);
 		kfree(job);
-
+		
 		return NULL;
 
 	}
@@ -1136,7 +1136,7 @@ static int run_test (void * node_ptr) {
 		kfree(cmd);
 	}
 
-	return 1;
+	return 0;
 }
 
 /* Get the node with minimum load. */

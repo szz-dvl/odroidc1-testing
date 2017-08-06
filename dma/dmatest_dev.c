@@ -1,6 +1,8 @@
 //#include <linux/moduleparam.h>
 #include "dmatest.h"
 
+#define DMA_TERMINATED               4
+
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("S805 Dmaengine tester");
 MODULE_AUTHOR("szz");
@@ -686,16 +688,17 @@ static void print_block (tjob * job, tdata * block, int idx) {
 static bool terminate_node ( int node_id ) {
 
 	telem * node = get_node_by_id ( node_id );	
-	enum dma_status ret = DMA_SUCCESS;
+	enum dma_status ret = DMA_TERMINATED;
 	tjob * job, * temp;
 	tdata * block, * tmp;
 	bool check = true;
+	uint undefined_cmd = 7;
 	
 	if ( node ) {
 
 		if (node->chan)
 			ret = dmaengine_terminate_all ( node->chan );
-
+		
 		list_for_each_entry_safe (job, temp, &node->jobs, elem) {
 			
 			if (job->tnum == DMA_CYCL) {
@@ -703,9 +706,9 @@ static bool terminate_node ( int node_id ) {
 				check = check_results(job);
 
 				if (!check)
-					pr_err("%u >> Data integriry check failed for test %u (%s).\n", job->parent->id, job->tnum, job->tname);
+					pr_err("%u >> Data integrity check failed for test %u (%s).\n", job->parent->id, job->tnum, job->tname);
 				else
-					pr_warn("%u >> Data integriry check success for test %u (%s).\n", job->parent->id, job->tnum, job->tname);
+					pr_warn("%u >> Data integrity check success for test %u (%s).\n", job->parent->id, job->tnum, job->tname);
 				
 			}
 			
@@ -734,16 +737,15 @@ static bool terminate_node ( int node_id ) {
 
 		if (node->chan)
 			pr_info("%u >> Node %d (%s) terminated\n", node_id, node->id, dma_chan_name(node->chan));
-
-		if (node->chan)
-			dma_release_channel ( node->chan );
-		
-		node->chan = NULL;
 		
 	} else
 		pr_err("Node %d not existent.\n", node_id);
+
+	/* There is actually no way of getting the current status for a channel ... quick fix, more info in the driver */
+	while(node->chan->device->device_control(node->chan, undefined_cmd, 0) != DMA_SUCCESS)
+		cpu_relax();
 	
-	return ret == DMA_SUCCESS;
+	return true;
 }
 
 /* Perform queued jobs on a given node */
@@ -874,9 +876,9 @@ static bool finish_transaction ( void * args ) {
 		check = check_results(tinfo);
 		
 	if (!check)
-		pr_err("%u >> Data integriry check failed for test %u (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->tname);
+		pr_err("%u >> Data integrity check failed for test %u (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->tname);
 	else
-		pr_warn("%u >> Data integriry check success for test %u (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->tname);
+		pr_warn("%u >> Data integrity check success for test %u (%s).\n", tinfo->parent->id, tinfo->tnum, tinfo->tname);
 	
 	
 	list_for_each_entry_safe (block, temp, &tinfo->data, elem) {
@@ -1147,10 +1149,10 @@ static int run_test (void * node_ptr) {
 			case ISSUE_JOBS:
 				{
 					int i;
-				
+					
 					if (cmd->args < 0) {
 						for (i = 0; i < max_chann; i++)
-							ret = ret && perform_jobs ( i );
+							ret = perform_jobs ( i ) && ret;
 					} else
 						ret = perform_jobs ( cmd->args );
 				}
@@ -1159,13 +1161,32 @@ static int run_test (void * node_ptr) {
 			case TERMINATE_NODE:
 				{
 					int i;
-				
+				    telem * aux;
+					
 					if (cmd->args < 0) {
-						for (i = 0; i < max_chann; i++)
-							ret = ret && terminate_node ( i );
-					} else
+
+						for (i = 0; i < max_chann; i++) {
+
+							ret = terminate_node ( i ) && ret;
+
+							aux = get_node_by_id ( i );
+							
+							if ( aux->chan )
+								dma_release_channel ( aux->chan );
+							
+						    aux->chan = NULL;
+						}
+						
+					} else {
+						
 						ret = terminate_node ( cmd->args );
-				
+						aux = get_node_by_id ( cmd->args );
+							
+						if ( aux->chan )
+							dma_release_channel ( aux->chan );
+						
+						aux->chan = NULL;
+					}
 				}
 				break;;
 				
@@ -1175,20 +1196,20 @@ static int run_test (void * node_ptr) {
 				
 					if (cmd->args < 0) {
 						for (i = 0; i < max_chann; i++)
-							ret = ret && pause_chan ( i );
+							ret = pause_chan ( i ) && ret;
 					} else
 						ret = pause_chan ( cmd->args );
-				
+					
 				}
 				break;;
-
+				
 			case RESUME_CHAN:
 				{
 					int i;
 				
 					if (cmd->args < 0) {
 						for (i = 0; i < max_chann; i++)
-							ret = ret && resume_chan ( i );
+							ret = resume_chan ( i ) && ret;
 					} else
 						ret = resume_chan ( cmd->args );
 				
@@ -1209,7 +1230,7 @@ static int run_test (void * node_ptr) {
 		kfree(cmd);
 	}
 	
-	return 1;
+	return 0;
 }
 
 static telem * get_node_by_id ( uint id ) {
