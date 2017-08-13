@@ -5,7 +5,7 @@ if [ ! -c /dev/cryptotest ]; then
 fi
 
 # read the options
-TEMP=`getopt -o v:t:k:m:s: --long verbose:,text:,key:,mode:,size: -n 'sendpar' -- "$@"`
+TEMP=`getopt -o v:t:k:m:s:n: --long verbose:,text:,key:,mode:,size:,seq: -n 'sendpar' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -40,6 +40,9 @@ while true ; do
 		-m | --mode)
 			mode="$2"; shift 2 ;;
 
+		-n | --seq)
+			sequence="$2"; shift 2 ;;
+				
 		-v | --verbose)
 			verbose="$2"; shift 2 ;;
 
@@ -66,4 +69,8 @@ fi
 
 if [ ! -z $size ]; then
 	echo -n "$size" | sudo tee /sys/kernel/debug/cryptotest/glob_size &> /dev/null
+fi
+
+if [ ! -z $sequence ]; then
+	echo -n "$sequence" | sudo tee /sys/kernel/debug/cryptotest/sequence &> /dev/null
 fi

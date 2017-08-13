@@ -72,6 +72,7 @@ u32 async_mode = true;
 u32 mode_2d = false;
 u32 direction = true;
 static u32 batch_mode = false;
+static u32 mstr_id;
 
 struct dentry *root;
 
@@ -88,6 +89,10 @@ static bool register_debugfs (void) {
 	    goto err_reg;
 
 	d = debugfs_create_u32("max_chann", S_IRUGO, root, (u32 *)&max_chann);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+
+	d = debugfs_create_u32("mstr_id", S_IRUGO, root, (u32 *)&mstr_id);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 	
@@ -754,6 +759,7 @@ static bool perform_jobs ( int node_id ) {
 	telem * node = get_node_by_id ( node_id );
 	tjob * job, * tmp;
 	bool ret = true;
+	uint amount = 0;
 	
 	if (node) {
 		
@@ -764,9 +770,9 @@ static bool perform_jobs ( int node_id ) {
 		   
 		*/
 		
-		list_for_each_entry_safe (job, tmp, &node->jobs, elem) 
+		list_for_each_entry_safe (job, tmp, &node->jobs, elem)
 			ret = ret && issue_transaction ( job );
-
+		
 	} else
 		pr_err("Node %d not existent.\n", node_id);
 	
@@ -813,7 +819,7 @@ static bool issue_transaction ( tjob * tinfo ) {
 
 	tinfo->stime = jiffies;
 
-	pr_info("%u >> Issuing transaction (%d)\n", tinfo->parent->id, tinfo->tx_cookie);
+	pr_info("%u >> Issuing transactions for channel (%s)\n", tinfo->parent->id, dma_chan_name(tinfo->parent->chan));
 	
 	if (tinfo->async)
 		dma_async_issue_pending(tinfo->parent->chan);
@@ -1130,7 +1136,8 @@ static int run_test (void * node_ptr) {
 				
 			case ALL_TESTS:
 				{
-				
+
+					mstr_id = node->id;
 					ret =
 						do_dma_slave_sg ( node ) &&
 						//do_dma_cyclic ( node ) &&
@@ -1345,11 +1352,14 @@ static void __exit dmatest_exit(void)
 		
 		if (node->pending) 
 			terminate_node( node->id );
+					
+		if ( node->chan )
+			dma_release_channel ( node->chan );
 		
 		list_del(&node->elem);
 		kfree(node);
 	}
-
+	
 	unregister_chrdev ( major, "dmatest" );
 	debugfs_remove_recursive ( root );
 	

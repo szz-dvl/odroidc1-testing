@@ -84,7 +84,7 @@ static void  aes_decrypt_cb (struct crypto_async_request *req, int err) {
 
 		len -= sg_dma_len(dst);
 		
-		if (!ok || len <= 0)
+		if (!ok || len <= 0) /* Comment out the first condition to get all the texts. */
 			break;
 		
 		orig = sg_next(orig);
@@ -138,7 +138,7 @@ bool do_aes_encrypt ( tjob * job ) {
 
 	if (job->tmode) {
 
-		skcipher_givcrypt_set_giv (spec_data->ereq, kzalloc(crypto_ablkcipher_ivsize(spec_data->tfm), GFP_KERNEL), 0);
+		skcipher_givcrypt_set_giv (spec_data->ereq, kzalloc(crypto_ablkcipher_ivsize(spec_data->tfm), GFP_KERNEL), sequence);
 
 		if (!spec_data->ereq->giv) {
 
@@ -207,7 +207,7 @@ bool do_aes_decrypt ( tjob * job ) {
 	/* 	goto fail; */
 
 	if (job->tmode)
-		skcipher_givcrypt_set_giv (spec_data->dreq, spec_data->ereq->giv, 0);
+		skcipher_givcrypt_set_giv (spec_data->dreq, spec_data->ereq->giv, sequence);
 	
 	sg_for_each (src, aux) {
 		

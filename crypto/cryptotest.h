@@ -85,12 +85,20 @@ typedef struct ablkcipher_data {
 	
 } ablk_d;
 
+typedef struct ahash_updt {
+
+	struct sg_table src;
+	struct list_head elem;
+
+} crc_updt;
+	
 /* CRC */
 typedef struct ahash_data {
 
 	struct ahash_request * req;
 	struct crypto_ahash * tfm;
-	struct scatterlist * src;
+
+	struct list_head updates;
 	
 	uint updt_cnt;
 	
@@ -225,3 +233,4 @@ extern struct list_head texts_list;
 	for (; src || dst; src = sg_next(src), dst = sg_next(dst))
 	
 
+extern uint sequence;

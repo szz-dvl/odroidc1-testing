@@ -18,7 +18,7 @@ if [ ! -z $1 ]; then
 	cmd="$cmd,$1"
 else
 	if [ $text_bytes -eq 0 ]; then
-		cmd="$cmd,0" #One text in a shot please ...
+		cmd="$cmd,$(( $(sudo cat /sys/kernel/debug/cryptotest/text_id) ))" #One text in a shot please ...
 	else
 		cmd="$cmd,$(( $(sudo cat /sys/kernel/debug/cryptotest/text_id) - 1 ))"
 	fi
@@ -35,8 +35,8 @@ case $mode in
 esac
 
 if [ $text_bytes -eq 0 ]; then
-   ./gentext $(( (RANDOM % 5) + 1))
+   ./gentext -a $(( (RANDOM % 5) + 1))
 fi
 
-echo "$cmd"
+#echo "$cmd"
 sudo dmesg --clear && ./sendpar -v $verbose -m $mode && ./sendcmd "$cmd" && dmesg

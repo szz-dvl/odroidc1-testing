@@ -57,7 +57,7 @@ pause_resume() {
 trap './sendcmd 9 && echo && print_res && cat /proc/irq/68/spurious | grep -v "count" && exit' SIGINT SIGTERM
 trap 'pause_resume' SIGQUIT
 
-sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 && ./sendcmd 1 1,0 1,1 1,2 1,3
+sudo dmesg --clear && ./sendpar -p "$periods" -s "$size" -v 0 -bN && ./sendcmd 1 #1,0 1,1 1,2 1,3
 
 ini_t=$SECONDS
 if [ ! -z $limit ]; then
@@ -65,9 +65,9 @@ if [ ! -z $limit ]; then
 		print_status
 		sleep 1
 	done
-	
+
 	./sendcmd 9 && echo && print_res
-	
+
 	cat /proc/irq/68/spurious | grep -v "count"
 else
 	while true; do

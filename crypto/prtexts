@@ -20,4 +20,4 @@ while read line; do
 		echo "$clean"
 	fi
 	
-done< <(sudo dmesg --clear && ./sendcmd 7 && dmesg | tail -n +2)
+done< <(sudo dmesg --clear && ./sendcmd 7 && sleep 1 && dmesg | tail -n +2)

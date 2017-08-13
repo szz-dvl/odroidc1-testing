@@ -1,7 +1,7 @@
 #include "cryptotest.h"
 #include <mach/am_regs.h>
 
-#define CRC_ALGNAME         "crc-32-hw"
+#define CRC_ALGNAME         "crc-16-hw"
 #define RESULT_INI          AIU_CRC_CTRL
 
 #define WR(data, addr)  *(volatile unsigned long *)(addr)=data
@@ -22,19 +22,26 @@ static void crc_cb (struct crypto_async_request *req, int err) {
 	struct scatterlist * aux;
 	uint i;
 	u32 * res = (u32 *) myreq->result;
-	
-	if (verbose >= 2) {
 
-		sg_for_each (myreq->src, aux) {
-			
-			print_hex_dump_bytes("Content: ", DUMP_PREFIX_ADDRESS, sg_virt(aux), sg_dma_len(aux));
-			pr_info("\t\t |------------------------------------------------------|\n");	
+	crc_updt * updt;
+				
+	list_for_each_entry (updt, &spec_data->updates, elem) {
+
+		if (verbose >= 2) {
+
+			sg_for_each (updt->src.sgl, aux) {
+				
+				print_hex_dump_bytes("Content: ", DUMP_PREFIX_ADDRESS, sg_virt(aux), sg_dma_len(aux));
+				pr_info("\t\t |------------------------------------------------------|\n");	
+			}
 		}
+		
 	}
+	
 	
 	pr_warn("%u >> CRC hash finished in %u ns, result = 0x%08x (%u) - [0x%08x].\n", job->id, jiffies_to_usecs(diff), (u32) *myreq->result, (u32) *myreq->result, (u32) RD(CBUS_REG_ADDR(0x2278)) );
 	
-	for (i = 1; i < 12; i++)
+	for (i = 1; i < 13; i++)
 		pr_info("%u >> CBUS (0x%04x) => (0x%08x, %5u) - (0x%08x, %5u).\n", job->id, RESULT_INI + (i - 1), res[i], res[i], (u32) RD(CBUS_REG_ADDR(RESULT_INI + (i - 1))), (u32) RD(CBUS_REG_ADDR(RESULT_INI + (i - 1))));
 	
 	destroy_job(job); /* In the driver CRC irq not arrived yet.. at least until now. */
@@ -47,6 +54,8 @@ static bool init_crc (tjob * job, bool init_drv) {
 	spec_data = job->data->spec = (skcip_d *) kzalloc(sizeof(skcip_d), GFP_KERNEL);
 	if (!spec_data)
 	    goto fail;
+
+	INIT_LIST_HEAD(&spec_data->updates);
 	
 	if(!crypto_has_alg(CRC_ALGNAME, CRYPTO_ALG_TYPE_AHASH | CRYPTO_ALG_ASYNC, CRYPTO_ALG_TYPE_AHASH_MASK)) {
 		
@@ -70,22 +79,14 @@ static bool init_crc (tjob * job, bool init_drv) {
 
 	}
 	
-	spec_data->src = kmalloc(sizeof(struct scatterlist), GFP_KERNEL);
+	/* spec_data->src = kmalloc(sizeof(struct scatterlist), GFP_KERNEL); */
 	
-	if (!spec_data->src) {
+	/* if (!spec_data->src) { */
 
-		pr_err("%u >> No src, aborting.\n", job->id);
-		goto fail;
+	/* 	pr_err("%u >> No src, aborting.\n", job->id); */
+	/* 	goto fail; */
 		
-	}
-	
-	ahash_request_set_crypt (spec_data->req, spec_data->src, kzalloc(crypto_ahash_digestsize(spec_data->tfm) * 12, GFP_KERNEL), job->data->nbytes); /* !!! */
-	if (!spec_data->req->result) {
-
-		pr_err("%u >> No result, aborting.\n", job->id);
-		goto fail;
-		
-	}
+	/* } */
 	
 	ahash_request_set_callback(spec_data->req, 0, crc_cb, job);
 	
@@ -106,7 +107,6 @@ static bool init_crc (tjob * job, bool init_drv) {
 
 static bool crc_map_txt (tjob * job, struct scatterlist * sg, uint len) {
 
-	sg_init_table(sg, 1);
     sg_set_buf(sg, dma_alloc_coherent(NULL,
 									  len,
 									  &sg_dma_address(sg),
@@ -117,31 +117,20 @@ static bool crc_map_txt (tjob * job, struct scatterlist * sg, uint len) {
 		pr_err("%u >> Dma allocation failed (%p, 0x%08x).\n", job->id, sg_virt(sg), sg_dma_address(sg));
 		return false;
 		
-	} /* else */
-	  /* 	sg_mark_end(sg); */
+	} else
+		pr_warn("%u >> Dma allocation success (%p, 0x%08x).\n", job->id, sg_virt(sg), sg_dma_address(sg));
+	//sg_mark_end(sg);
 	
 	return true;
 	
 }
-static bool crc_add_txt (tjob * job, text * txt, bool adv) {
+
+static struct scatterlist * crc_updt_txt (tjob * job, struct scatterlist * src, text * txt)
+{
 
 	ahash_d * spec_data = job->data->spec;
-	struct scatterlist * src;
 	uint len = ALIGN(txt->len, crypto_ahash_alignmask(spec_data->tfm) + 1);
 	
-	if (!spec_data->updt_cnt) {
-
-		src = spec_data->src;
-	   
-	} else {
-
-		src = kzalloc(sizeof(struct scatterlist), GFP_KERNEL);
-
-		if (!src)
-			return false;
-		
-	}
-
 	if (crc_map_txt(job, src, len)) {
 		
 		if (len != txt->len)
@@ -149,52 +138,88 @@ static bool crc_add_txt (tjob * job, text * txt, bool adv) {
 
 		memcpy(sg_virt(src), txt->text, txt->len); /* Fill with info, alignment padded with zeroes */
 		
-	} else {
-
-		if (spec_data->updt_cnt) 
-			kfree(src);
-		
-		return false;
-	}
-
-	if (spec_data->updt_cnt) {
-
-		sg_chain(spec_data->req->src, spec_data->updt_cnt, src);
-		sg_mark_end(src);
-		
-		if (adv)
-			spec_data->req->src = src;
-	} else
-		sg_mark_end(src);
+	} else 	
+		return NULL;
 	
-	spec_data->updt_cnt ++;
 
+	spec_data->updt_cnt ++;
 	pr_info("%u >> CRC: Adding text %u, total: %u.\n", job->id, txt->id, spec_data->updt_cnt);
 	
+	return src;
+	
+}
+
+static crc_updt * init_crc_updt(uint num) {
+
+	crc_updt * updt = kzalloc(sizeof(crc_updt), GFP_KERNEL);
+
+	if (!updt)
+		return NULL;
+
+	if (sg_alloc_table(&updt->src, num, GFP_KERNEL))
+		goto fail;
+	
+	return updt;
+	
+ fail:
+	
+	sg_free_table(&updt->src);
+	kfree(updt);
+
+	return NULL;
+}
+
+static bool crc_set_req (tjob * job, struct scatterlist * src) {
+
+	ahash_d * spec_data = job->data->spec;
+
+	spec_data->req->result = kzalloc(crypto_ahash_digestsize(spec_data->tfm) * 13, GFP_KERNEL); //spec_data->req->result ? : 
+
+	if (!spec_data->req->result) {
+
+		pr_err("%u >> No result, aborting.\n", job->id);
+		return false;
+		
+	}
+	
+	ahash_request_set_crypt (spec_data->req, src, spec_data->req->result, job->data->nbytes);
 	return true;
 }
 
-static bool crc_add_args ( tjob * job ) {
+static struct scatterlist * crc_add_args ( tjob * job ) {
 
 	text * txt;
 	ahash_d * spec_data = job->data->spec;
-	struct scatterlist * ret, * aux = spec_data->src;
+	struct scatterlist * ret, * aux;
 	uint j = 0;
+
+	crc_updt * updt = init_crc_updt(job->args < 0 ? job->data->text_num : 1);
+	
+	if (!updt)
+		return NULL;
+
+	ret = aux = updt->src.sgl;
 	
 	if (job->args < 0) {
 		
 		text_for_each(txt) {
-
-		    if (!crc_add_txt (job, txt, !j))
+			
+			if (!crc_updt_txt (job, aux, txt))
 				goto err_map;
 
+			if (!j)
+				ret = aux;
+			
 			j++;
+			aux = sg_next(aux);
 		}
+
+		//sg_mark_end(aux);
 		
 	} else {
 		
 		txt = get_text_by_id(job->args);
-
+		
 		if (!txt) {
 			
 			pr_err("%u >> Bad tid provided, aborting.\n", job->id);
@@ -202,23 +227,35 @@ static bool crc_add_args ( tjob * job ) {
 					
 		}
 		
-	    return crc_add_txt (job, txt, true);
+	    ret = crc_updt_txt (job, updt->src.sgl, txt);
+
+		if (!ret)
+			goto err_single;
+
+		//sg_mark_end(spec_data->req->src);
 	}
 
+	list_add_tail(&updt->elem, &spec_data->updates);
+	crc_set_req(job, ret);
+	
+	return spec_data->req->src;
 
  err_map:
-
-	ret = spec_data->src != aux ? sg_next(aux) : NULL;
+	
+	ret = updt->src.sgl;
 	
 	while (ret) {
 		
 		dma_free_coherent(NULL, sg_dma_len(ret), sg_virt(ret), sg_dma_address(ret));
-		aux = ret;
 		ret = sg_next(ret);
-		kfree (aux);
 	}
-
-	return false;
+	
+ err_single:
+	
+	sg_free_table(&updt->src);
+	kfree(updt);
+	
+	return NULL;
 }
 
 bool do_crc_digest ( tjob * job ) {

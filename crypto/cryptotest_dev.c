@@ -72,6 +72,7 @@ static unsigned long long glob_size = 4 * 1024;
 static char hr_size [32] = "4K";
 static char text_usage[32] = "0 Bytes";
 
+uint sequence = 0;
 uint verbose = 0;
 uint text_cnt = 0;
 
@@ -111,6 +112,10 @@ static bool register_debugfs (void) {
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
 
+	d = debugfs_create_u32("sequence", S_IRUGO | S_IWUSR, root, (u32 *)&sequence);
+	if (IS_ERR_OR_NULL(d))
+	    goto err_reg;
+	
 	d = debugfs_create_u32("mode", S_IRUGO | S_IWUSR, root, (u32 *)&mode);
 	if (IS_ERR_OR_NULL(d))
 	    goto err_reg;
@@ -424,21 +429,22 @@ static void free_spec ( tjob * job ) {
 			{
 				ahash_d * spec_data = job->data->spec;
 				struct ahash_request * req = spec_data->req;
-				struct scatterlist * last, * aux = spec_data->src;
+				struct scatterlist * aux;
+				crc_updt * updt, * tmp;
+				
+				list_for_each_entry_safe (updt, tmp, &spec_data->updates, elem) {
 
-				while (aux) {
-					
-					if (sg_dma_address(aux)) {
+					aux = updt->src.sgl;
 
-						//pr_info("Freeing %p\n", aux);
-						
-						dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));
-						last = aux;
+					while (aux) {
+
+						dma_free_coherent(NULL, sg_dma_len(aux), sg_virt(aux), sg_dma_address(aux));	   
 						aux = sg_next(aux);
-						kfree (last);
-						
-					} else
-						break;
+					}
+
+					sg_free_table(&updt->src);
+					list_del(&updt->elem);
+					kfree(updt);
 				}
 
 				if (spec_data->tfm)
