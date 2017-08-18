@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ ! -z "$1" ]; then
+	if [ -z "$2" ]; then
+		cat /sys/class/gpio/gpio"$1"/direction
+	else
+		echo "$2" | sudo tee /sys/class/gpio/gpio"$1"/direction
+	fi
+fi

@@ -4,6 +4,8 @@
 *.cmd
 *~
 private*
+vmallocinfo*
+info.txt
 Module.symvers
 modules.order
 

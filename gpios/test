@@ -1,0 +1,22 @@
+#!/bin/bash
+
+sudo dmesg --clear
+
+#sudo io read 0xc8100024 MEM
+sudo io read 0x200F CBUS
+sudo io read 0x2010 CBUS
+
+if [ ! -d /sys/class/gpio/gpio88 ]; then
+	./export 88
+fi
+
+./dire 88 out
+
+./pwm 8 50
+./enable 1
+
+dmesg
+
+#sudo io read 0xc8100024 MEM
+sudo io read 0x200F CBUS
+sudo io read 0x2010 CBUS

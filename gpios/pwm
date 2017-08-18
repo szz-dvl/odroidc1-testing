@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [ ! -z "$1" ]; then
+
+	if [ ! -z "$2" ]; then
+		echo "$2" | sudo tee /sys/devices/platform/meson_spwm.4/soft-pwm/duty
+	fi
+
+	echo "$1" | sudo tee /sys/devices/platform/meson_spwm.4/soft-pwm/gpio
+fi
