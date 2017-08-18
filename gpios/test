@@ -3,6 +3,8 @@
 sudo dmesg --clear
 
 #sudo io read 0xc8100024 MEM
+
+# Please refer to https://github.com/szz-dvl/odroidc-io.git to get the code for io executable.
 sudo io read 0x200F CBUS
 sudo io read 0x2010 CBUS
 
